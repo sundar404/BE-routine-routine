@@ -1,0 +1,1499 @@
+const PDFDocument = require('pdfkit');
+const RoutineSlot = require('../models/RoutineSlot');
+const TimeSlot = require('../models/TimeSlot');
+const Program = require('../models/Program');
+
+class PDFRoutineService {
+
+  constructor() {
+    // PDF layout configuration
+    this.headerRowHeight = 60; // Reduced header height for time slots
+  }
+
+  /**
+   * Get custom PDF page dimensions based on type
+   */
+  _getCustomPageSize(type = 'default') {
+    const sizes = {
+      'default': [842, 1400],     // Standard width, extended height
+      'wide': [1200, 842],        // Wide format (landscape)
+      'tall': [842, 1600],        // Extra tall for complex schedules
+      'large': [1200, 1600],      // Large format for detailed view
+      'a4': [595, 842],           // Standard A4
+      'a3': [842, 1191]           // A3 size
+    };
+    return sizes[type] || sizes['default'];
+  }
+
+  /**
+   * Determine optimal page size based on content complexity
+   */
+  _getOptimalPageSize(routineSlots, timeSlots) {
+    const totalSlots = routineSlots.length;
+    const timeSlotCount = timeSlots.length;
+    
+    // Check for merged classes (multiple slots in same time)
+    const slotMap = new Map();
+    routineSlots.forEach(slot => {
+      const key = `${slot.dayIndex}-${slot.slotIndex}`;
+      if (!slotMap.has(key)) slotMap.set(key, []);
+      slotMap.get(key).push(slot);
+    });
+    
+    const hasComplexSchedule = Array.from(slotMap.values()).some(slots => slots.length > 1);
+    
+    // Determine size based on complexity
+    if (hasComplexSchedule && totalSlots > 40) {
+      return 'large'; // Complex schedule with many merged classes
+    } else if (totalSlots > 30 || timeSlotCount > 8) {
+      return 'tall'; // Many classes or time slots
+    } else if (timeSlotCount > 6) {
+      return 'wide'; // Many time slots, use landscape
+    } else {
+      return 'default'; // Standard schedule
+    }
+  }
+
+  /**
+   * Generate PDF for room schedule showing which classes are in the room at different times
+   */
+  async generateRoomSchedulePDF(roomId, roomName) {
+    try {
+      console.log(`📄 Generating room schedule PDF for ${roomName || roomId}`);
+
+      // Get all routine slots for this room
+      const routineSlots = await RoutineSlot.find({
+        roomId: roomId,
+        isActive: true
+      })
+        .populate('subjectId', 'name code')
+        .populate('subjectIds', 'name code')
+        .populate('teacherIds', 'fullName shortName')
+        .sort({ dayIndex: 1, slotIndex: 1 });
+
+      if (!routineSlots || routineSlots.length === 0) {
+        console.log(`No routine data found for room ${roomName || roomId}`);
+        return null;
+      }
+
+      // Get time slots for grid structure
+      const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
+
+      // Determine optimal page size based on schedule complexity
+      const optimalSize = this._getOptimalPageSize(routineSlots, timeSlots);
+      const customSize = this._getCustomPageSize(optimalSize);
+      
+      console.log(`📄 Using ${optimalSize} page format (${customSize[0]}x${customSize[1]}) for room ${roomName} with ${routineSlots.length} slots`);
+
+      // Create PDF document with dynamic dimensions
+      const doc = new PDFDocument({
+        margin: 30,
+        size: customSize,
+        layout: 'portrait' // Portrait orientation for better vertical space
+      });
+
+      const buffers = [];
+      doc.on('data', buffers.push.bind(buffers));
+
+      // Generate header
+      this._generatePDFHeader(doc, {
+        title: `Room Schedule - ${roomName || 'Room'}`,
+        subtitle: `Weekly Schedule`,
+        roomName: roomName
+      });
+
+      // Generate room schedule grid using aligned method
+      this._generateRoomScheduleGridAligned(doc, routineSlots, timeSlots, roomName);
+
+      // Add footer
+      this._generatePDFFooter(doc, `Room Schedule - ${roomName || 'Room'}`);
+
+      return new Promise((resolve) => {
+        doc.on('end', () => {
+          const pdfBuffer = Buffer.concat(buffers);
+          console.log(`✅ Room schedule PDF generated successfully (${pdfBuffer.length} bytes)`);
+          resolve(pdfBuffer);
+        });
+
+        doc.end();
+      });
+
+    } catch (error) {
+      console.error('❌ Error generating room schedule PDF:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate PDF for teacher schedule showing when and where the teacher has classes
+   */
+  async generateTeacherSchedulePDF(teacherId, teacherName) {
+    try {
+      console.log(`📄 Generating teacher schedule PDF for ${teacherName || teacherId}`);
+
+      // Get all routine slots for this teacher
+      const routineSlots = await RoutineSlot.find({
+        teacherIds: teacherId,
+        isActive: true
+      })
+        .populate('subjectId', 'name code')
+        .populate('subjectIds', 'name code')
+        .populate('teacherIds', 'fullName shortName')
+        .populate('roomId', 'name')
+        .sort({ dayIndex: 1, slotIndex: 1 });
+
+      if (!routineSlots || routineSlots.length === 0) {
+        console.log(`No routine data found for teacher ${teacherName || teacherId}`);
+        return null;
+      }
+
+      // Get time slots for grid structure
+      const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
+
+      // Determine optimal page size based on schedule complexity
+      const optimalSize = this._getOptimalPageSize(routineSlots, timeSlots);
+      const customSize = this._getCustomPageSize(optimalSize);
+      
+      console.log(`📄 Using ${optimalSize} page format (${customSize[0]}x${customSize[1]}) for teacher ${teacherName} with ${routineSlots.length} slots`);
+
+      // Create PDF document with dynamic dimensions
+      const doc = new PDFDocument({
+        margin: 30,
+        size: customSize,
+        layout: 'portrait' // Portrait orientation for better vertical space
+      });
+
+      const buffers = [];
+      doc.on('data', buffers.push.bind(buffers));
+
+      // Generate header
+      this._generatePDFHeader(doc, {
+        title: `Teacher Schedule - ${teacherName || 'Teacher'}`,
+        subtitle: `Weekly Schedule`,
+        teacherName: teacherName
+      });
+
+      // Generate teacher schedule grid using aligned method
+      this._generateTeacherScheduleGridAligned(doc, routineSlots, timeSlots, teacherName);
+
+      // Add footer
+      this._generatePDFFooter(doc, `Teacher Schedule - ${teacherName || 'Teacher'}`);
+
+      return new Promise((resolve) => {
+        doc.on('end', () => {
+          const pdfBuffer = Buffer.concat(buffers);
+          console.log(`✅ Teacher schedule PDF generated successfully (${pdfBuffer.length} bytes)`);
+          resolve(pdfBuffer);
+        });
+
+        doc.end();
+      });
+
+    } catch (error) {
+      console.error('❌ Error generating teacher schedule PDF:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate combined PDF for all teachers schedules
+   */
+  async generateAllTeachersSchedulesPDF() {
+    try {
+      console.log(`📄 Generating all teachers schedules PDF`);
+
+      // Get all active teachers that have routine slots
+      const teacherIds = await RoutineSlot.distinct('teacherIds', { isActive: true });
+      
+      if (!teacherIds || teacherIds.length === 0) {
+        console.log('No teachers with active schedule found');
+        return null;
+      }
+
+      // Get teacher details
+      const Teacher = require('../models/Teacher');
+      const teachers = await Teacher.find({ _id: { $in: teacherIds } }).sort({ fullName: 1 });
+
+      if (!teachers || teachers.length === 0) {
+        console.log('No teacher details found');
+        return null;
+      }
+
+      // Create PDF document
+      const customSize = this._getCustomPageSize('tall'); // Use 'tall' format for combined schedules
+      const doc = new PDFDocument({
+        margin: 30,
+        size: customSize,
+        layout: 'portrait' // Portrait orientation for better vertical space
+      });
+
+      const buffers = [];
+      doc.on('data', buffers.push.bind(buffers));
+
+      let isFirstTeacher = true;
+
+      // Generate schedule for each teacher
+      for (const teacher of teachers) {
+        if (!isFirstTeacher) {
+          doc.addPage();
+        }
+        isFirstTeacher = false;
+
+        console.log(`Generating schedule for teacher ${teacher.fullName}...`);
+
+        // Get routine data for this teacher
+        const routineSlots = await RoutineSlot.find({
+          teacherIds: teacher._id,
+          isActive: true
+        })
+          .populate('subjectId', 'name code')
+          .populate('subjectIds', 'name code')
+          .populate('teacherIds', 'fullName shortName')
+          .populate('roomId', 'name')
+          .sort({ dayIndex: 1, slotIndex: 1 });
+
+        if (routineSlots.length === 0) {
+          console.log(`No routine data found for teacher ${teacher.fullName}`);
+          continue;
+        }
+
+        // Get time slots
+        const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
+
+        // Generate header for this teacher
+        this._generatePDFHeader(doc, {
+          title: `Teacher Schedule - ${teacher.fullName}`,
+          subtitle: `Weekly Schedule`,
+          teacherName: teacher.fullName
+        });
+
+        // Generate teacher schedule grid
+        this._generateTeacherScheduleGridAligned(doc, routineSlots, timeSlots, teacher.fullName);
+
+        // Add footer
+        this._generatePDFFooter(doc, `Teacher Schedule - ${teacher.fullName}`);
+      }
+
+      return new Promise((resolve) => {
+        doc.on('end', () => {
+          const pdfBuffer = Buffer.concat(buffers);
+          console.log(`✅ All teachers schedules PDF generated successfully (${pdfBuffer.length} bytes)`);
+          resolve(pdfBuffer);
+        });
+
+        doc.end();
+      });
+
+    } catch (error) {
+      console.error('❌ Error generating all teachers schedules PDF:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate PDF for class schedule (program/semester/section)
+   */
+  async generateClassSchedulePDF(programCode, semester, section) {
+    try {
+      console.log(`📄 Generating class schedule PDF for ${programCode}-${semester}-${section}`);
+
+      // Get routine data - Step 1: Get TimeSlots first (mirroring frontend)
+      const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
+      if (!timeSlots || timeSlots.length === 0) {
+        console.log('No time slots found in database');
+        return null;
+      }
+      console.log(`Found ${timeSlots.length} time slots from database`);
+
+      // Step 2: Get routine slots with proper population
+      const routineSlots = await RoutineSlot.find({
+        programCode: programCode.toUpperCase(),
+        semester: parseInt(semester),
+        section: section.toUpperCase(),
+        isActive: true
+      })
+        .populate('subjectId', 'name code')
+        .populate('subjectIds', 'name code')
+        .populate('teacherIds', 'fullName shortName')
+        .populate('roomId', 'name')
+        .sort({ dayIndex: 1, slotIndex: 1 });
+
+      if (!routineSlots || routineSlots.length === 0) {
+        console.log(`No routine data found for ${programCode}-${semester}-${section}`);
+        return null;
+      }
+
+      console.log(`Found ${routineSlots.length} routine slots for ${programCode}-${semester}-${section}`);
+      if (routineSlots.length > 0) {
+        console.log('Sample routine slot:', {
+          dayIndex: routineSlots[0].dayIndex,
+          slotIndex: routineSlots[0].slotIndex,
+          timeSlotMapping: `slotIndex ${routineSlots[0].slotIndex} -> timeSlot[${routineSlots[0].slotIndex - 1}]`,
+          classType: routineSlots[0].classType,
+          subject: routineSlots[0].subjectId?.code || routineSlots[0].subjectName_display,
+          hasSlotIndex: !!routineSlots[0].slotIndex
+        });
+      }
+
+      // Get time slots and program info
+      const program = await Program.findOne({ code: programCode.toUpperCase() });
+
+      // Determine optimal page size based on schedule complexity
+      const optimalSize = this._getOptimalPageSize(routineSlots, timeSlots);
+      const customSize = this._getCustomPageSize(optimalSize);
+      
+      console.log(`📄 Using ${optimalSize} page format (${customSize[0]}x${customSize[1]}) for ${routineSlots.length} slots`);
+
+      // Create PDF document with dynamic dimensions
+      const doc = new PDFDocument({
+        margin: 30,
+        size: customSize,
+        layout: 'portrait' // Portrait orientation for better vertical space
+      });
+
+      const buffers = [];
+      doc.on('data', buffers.push.bind(buffers));
+
+      // Generate header
+      this._generatePDFHeader(doc, {
+        programCode: programCode.toUpperCase(),
+        programName: program?.name || programCode,
+        semester: parseInt(semester),
+        section: section.toUpperCase()
+      });
+
+      // Generate schedule grid (frontend-aligned approach)
+      this._generateScheduleGridAligned(doc, routineSlots, timeSlots);
+
+      // Add footer
+      this._generatePDFFooter(doc, `${programCode.toUpperCase()} Semester ${semester} Section ${section.toUpperCase()}`);
+
+      return new Promise((resolve) => {
+        doc.on('end', () => {
+          const pdfBuffer = Buffer.concat(buffers);
+          console.log(`✅ Class schedule PDF generated successfully (${pdfBuffer.length} bytes)`);
+          resolve(pdfBuffer);
+        });
+
+        doc.end();
+      });
+
+    } catch (error) {
+      console.error('❌ Error generating class schedule PDF:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate combined PDF for all sections in a semester
+   */
+  async generateAllSemesterSchedulesPDF(programCode, semester) {
+    try {
+      console.log(`📄 Generating combined PDF for ${programCode} Semester ${semester} all sections`);
+
+      // Find all sections for this program/semester
+      const sections = await RoutineSlot.distinct('section', {
+        programCode: programCode.toUpperCase(),
+        semester: parseInt(semester),
+        isActive: true
+      });
+
+      if (!sections || sections.length === 0) {
+        console.log(`No sections found for ${programCode} Semester ${semester}`);
+        return null;
+      }
+
+      console.log(`Found sections: ${sections.join(', ')}`);
+
+      // Create PDF document with custom dimensions for better schedule display
+      const customSize = this._getCustomPageSize('tall'); // Use 'tall' format for combined schedules
+      const doc = new PDFDocument({
+        margin: 30,
+        size: customSize,
+        layout: 'portrait' // Portrait orientation for better vertical space
+      });
+
+      const buffers = [];
+      doc.on('data', buffers.push.bind(buffers));
+
+      let isFirstSection = true;
+
+      // Generate schedule for each section
+      for (const section of sections.sort()) {
+        if (!isFirstSection) {
+          doc.addPage();
+        }
+        isFirstSection = false;
+
+        console.log(`Generating section ${section}...`);
+
+        // Get routine data for this section
+        const routineSlots = await RoutineSlot.find({
+          programCode: programCode.toUpperCase(),
+          semester: parseInt(semester),
+          section: section.toUpperCase(),
+          isActive: true
+        })
+          .populate('subjectId', 'name code')
+          .populate('subjectIds', 'name code')
+          .populate('teacherIds', 'fullName shortName')
+          .populate('roomId', 'name')
+          .sort({ dayIndex: 1, slotIndex: 1 });
+
+        if (routineSlots.length === 0) {
+          console.log(`No routine data found for ${section} section`);
+          continue;
+        }
+
+        // Get time slots for this section
+        const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
+        const program = await Program.findOne({ code: programCode.toUpperCase() });
+
+        // Generate header for this section
+        this._generatePDFHeader(doc, {
+          programCode: programCode.toUpperCase(),
+          programName: program?.name || programCode,
+          semester: parseInt(semester),
+          section: section.toUpperCase()
+        });
+
+        // Generate grid for this section using aligned method
+        this._generateScheduleGridAligned(doc, routineSlots, timeSlots);
+
+        // Add footer
+        this._generatePDFFooter(doc, `${programCode.toUpperCase()} Semester ${semester} Section ${section.toUpperCase()}`);
+      }
+
+      return new Promise((resolve) => {
+        doc.on('end', () => {
+          const pdfBuffer = Buffer.concat(buffers);
+          console.log(`✅ Combined PDF generated successfully (${pdfBuffer.length} bytes)`);
+          resolve(pdfBuffer);
+        });
+
+        doc.end();
+      });
+
+    } catch (error) {
+      console.error('❌ Error generating combined semester PDF:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate PDF for all rooms schedule
+   */
+  async generateAllRoomsSchedulePDF() {
+    try {
+      console.log(`📄 Generating all rooms schedule PDF`);
+
+      // Get all active rooms that have routine slots
+      const roomIds = await RoutineSlot.distinct('roomId', { isActive: true });
+      
+      if (!roomIds || roomIds.length === 0) {
+        console.log('No rooms with active schedule found');
+        return null;
+      }
+
+      // Get room details
+      const Room = require('../models/Room');
+      const rooms = await Room.find({ _id: { $in: roomIds } }).sort({ name: 1 });
+
+      if (!rooms || rooms.length === 0) {
+        console.log('No room details found');
+        return null;
+      }
+
+      // Create PDF document with custom dimensions for better schedule display
+      const customSize = this._getCustomPageSize('tall'); // Use 'tall' format for combined schedules
+      const doc = new PDFDocument({
+        margin: 30,
+        size: customSize,
+        layout: 'portrait' // Portrait orientation for better vertical space
+      });
+
+      const buffers = [];
+      doc.on('data', buffers.push.bind(buffers));
+
+      let isFirstRoom = true;
+
+      // Generate schedule for each room
+      for (const room of rooms) {
+        if (!isFirstRoom) {
+          doc.addPage();
+        }
+        isFirstRoom = false;
+
+        console.log(`Generating schedule for room ${room.name}...`);
+
+        // Get routine data for this room
+        const routineSlots = await RoutineSlot.find({
+          roomId: room._id,
+          isActive: true
+        })
+          .populate('subjectId', 'name code')
+          .populate('subjectIds', 'name code')
+          .populate('teacherIds', 'fullName shortName')
+          .sort({ dayIndex: 1, slotIndex: 1 });
+
+        if (routineSlots.length === 0) {
+          console.log(`No routine data found for room ${room.name}`);
+          continue;
+        }
+
+        // Get time slots
+        const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
+
+        // Generate header for this room
+        this._generatePDFHeader(doc, {
+          title: `Room Schedule - ${room.name}`,
+          subtitle: `Weekly Schedule`,
+          roomName: room.name
+        });
+
+        // Generate room schedule grid using aligned method
+        this._generateRoomScheduleGridAligned(doc, routineSlots, timeSlots, room.name);
+
+        // Add footer
+        this._generatePDFFooter(doc, `Room Schedule - ${room.name}`);
+      }
+
+      return new Promise((resolve) => {
+        doc.on('end', () => {
+          const pdfBuffer = Buffer.concat(buffers);
+          console.log(`✅ All rooms schedule PDF generated successfully (${pdfBuffer.length} bytes)`);
+          resolve(pdfBuffer);
+        });
+
+        doc.end();
+      });
+
+    } catch (error) {
+      console.error('❌ Error generating all rooms schedule PDF:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate PDF header with program/room/teacher information
+   */
+  _generatePDFHeader(doc, options = {}) {
+    const { programCode, programName, semester, section, title, subtitle, roomName, teacherName } = options;
+
+    // College header
+    doc.fontSize(18).font('Helvetica-Bold')
+       .text('Department of Electronics and Computer Engineering', { align: 'center' });
+    
+    doc.fontSize(16).font('Helvetica')
+       .text('Pulchowk Campus, Institute of Engineering', { align: 'center' });
+    
+    doc.moveDown(0.7);
+
+    // Schedule title
+    if (title) {
+      doc.fontSize(16).font('Helvetica-Bold')
+         .text(title, { align: 'center' });
+    } else if (programCode) {
+      doc.fontSize(16).font('Helvetica-Bold')
+         .text(`${programCode} - ${programName || 'Program'}`, { align: 'center' });
+      
+      doc.fontSize(14).font('Helvetica')
+         .text(`Semester ${semester} | Section ${section}`, { align: 'center' });
+    }
+
+    if (subtitle) {
+      doc.fontSize(14).font('Helvetica')
+         .text(subtitle, { align: 'center' });
+    }
+
+    doc.moveDown(1.5); // Increased spacing to replace the line separator
+  }
+
+  /**
+   * Generate PDF footer
+   */
+  _generatePDFFooter(doc, scheduleType) {
+    const bottomMargin = 50;
+    const pageHeight = doc.page.height;
+    
+    doc.y = pageHeight - bottomMargin;
+    
+    // Add line separator
+    doc.strokeColor('#000000')
+       .lineWidth(0.5)
+       .moveTo(doc.page.margins.left, doc.y)
+       .lineTo(doc.page.width - doc.page.margins.right, doc.y)
+       .stroke();
+    
+    doc.moveDown(0.3);
+    
+    // Footer text
+    doc.fontSize(8).font('Helvetica')
+       .text(`Generated on: ${new Date().toLocaleDateString()} | ${scheduleType}`, 
+             doc.page.margins.left, doc.y, { 
+               width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
+               align: 'center' 
+             });
+  }
+
+  /**
+   * Generate schedule grid for class routines
+   */
+  _generateScheduleGrid(doc, routineSlots, timeSlots) {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    
+    // Grid dimensions
+    const startX = doc.page.margins.left;
+    const startY = doc.y;
+    const totalWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const dayColumnWidth = 90; // Increased from 80 to 90 for day names
+    const timeColumnWidth = (totalWidth - dayColumnWidth) / timeSlots.length;
+    const rowHeight = 65; // Increased from 45 to 65 for better readability
+
+    // Create routine lookup map using timeSlot._id (matching frontend exactly)
+    const routineMap = new Map();
+    
+    // Map routine slots using timeSlot._id as keys (frontend approach)
+    routineSlots.forEach(slot => {
+      // The API uses slotIndex (1-based) to map to timeSlots array (0-based)
+      if (slot.slotIndex !== undefined && timeSlots[slot.slotIndex - 1]) {
+        // Convert 1-based slotIndex to 0-based array index
+        const timeSlotArrayIndex = slot.slotIndex - 1;
+        const timeSlotId = timeSlots[timeSlotArrayIndex]._id.toString();
+        const key = `${slot.dayIndex}-${timeSlotId}`;
+        if (!routineMap.has(key)) {
+          routineMap.set(key, []);
+        }
+        routineMap.get(key).push(slot);
+      } else if (slot.timeSlotId) {
+        // Fallback: Use timeSlotId directly if it exists
+        const timeSlotId = slot.timeSlotId.toString();
+        const key = `${slot.dayIndex}-${timeSlotId}`;
+        if (!routineMap.has(key)) {
+          routineMap.set(key, []);
+        }
+        routineMap.get(key).push(slot);
+      }
+    });
+
+    console.log('📋 Routine Map Keys:', Array.from(routineMap.keys()));
+    console.log('📋 Mapping method:', routineSlots.length > 0 && routineSlots[0].slotIndex ? 'slotIndex (1-based)' : 'timeSlotId direct');
+
+    // Draw header row (time slots)
+    doc.fontSize(9).font('Helvetica-Bold');
+    
+    // Empty cell for day column
+    this._drawCell(doc, startX, startY, dayColumnWidth, rowHeight, '', '#f0f0f0', true);
+    
+    // Time slot headers
+    timeSlots.forEach((timeSlot, index) => {
+      const x = startX + dayColumnWidth + (index * timeColumnWidth);
+      this._drawCell(doc, x, startY, timeColumnWidth, rowHeight, 
+                     `${timeSlot.startTime}\n${timeSlot.endTime}`, '#f0f0f0', true);
+    });
+
+    // Draw day rows
+    days.forEach((day, dayIndex) => {
+      const y = startY + ((dayIndex + 1) * rowHeight);
+      
+      // Day name cell
+      doc.fontSize(10).font('Helvetica-Bold');
+      this._drawCell(doc, startX, y, dayColumnWidth, rowHeight, day, '#f8f8f8', true);
+      
+      // Time slot cells for this day
+      timeSlots.forEach((timeSlot, slotIndex) => {
+        const x = startX + dayColumnWidth + (slotIndex * timeColumnWidth);
+        const key = `${dayIndex}-${timeSlot._id.toString()}`;
+        const slotsInCell = routineMap.get(key) || [];
+        
+        let cellContent = '';
+        let bgColor = '#ffffff';
+        let isLab = false;
+        
+        if (slotsInCell.length > 0) {
+          const slot = slotsInCell[0]; // Primary slot
+          
+          // Determine if it's a lab class
+          isLab = slot.classType === 'P';
+          bgColor = isLab ? '#e3f2fd' : '#ffffff';
+          
+          if (slot.classType === 'BREAK') {
+            cellContent = 'BREAK';
+          } else if (slot.isElectiveClass && slot.subjectIds?.length > 1) {
+            // Multiple electives
+            cellContent = slot.subjectIds.map((subj, idx) => {
+              const teacher = slot.teacherIds?.[idx];
+              return `${subj.code}\n${teacher?.shortName || 'TBD'}`;
+            }).join('\n---\n');
+          } else {
+            // Regular class
+            const subjectCode = slot.subjectCode_display || slot.subjectId?.code || slot.display?.subjectCode || 'N/A';
+            const teacherNames = slot.teacherShortNames_display?.join(', ') || 
+                               slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
+                               slot.display?.teacherShortNames?.join(', ') || 'TBD';
+            const roomName = slot.roomName_display || slot.roomId?.name || slot.display?.roomName || 'TBD';
+            
+            cellContent = `${subjectCode}\n${teacherNames}\n${roomName}`;
+            
+            // Add lab group info if applicable
+            if (slot.labGroup && slot.labGroup !== 'ALL') {
+              cellContent += `\n(${slot.labGroup})`;
+            }
+          }
+        }
+        
+        this._drawCell(doc, x, y, timeColumnWidth, rowHeight, cellContent, bgColor, false, isLab);
+      });
+    });
+  }
+
+  /**
+   * Generate room schedule grid showing what classes use the room
+   */
+  _generateRoomScheduleGrid(doc, routineSlots, timeSlots, roomName) {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    
+    // Grid dimensions
+    const startX = doc.page.margins.left;
+    const startY = doc.y;
+    const totalWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const dayColumnWidth = 90; // Increased from 80 to 90 for day names
+    const timeColumnWidth = (totalWidth - dayColumnWidth) / timeSlots.length;
+    const rowHeight = 65; // Increased from 45 to 65 for better readability
+
+    // Create routine lookup map using timeSlot._id (matching frontend exactly)
+    const routineMap = new Map();
+    
+    // Map routine slots using timeSlot._id as keys (frontend approach)
+    routineSlots.forEach(slot => {
+      // The API uses slotIndex (1-based) to map to timeSlots array (0-based)
+      if (slot.slotIndex !== undefined && timeSlots[slot.slotIndex - 1]) {
+        // Convert 1-based slotIndex to 0-based array index
+        const timeSlotArrayIndex = slot.slotIndex - 1;
+        const timeSlotId = timeSlots[timeSlotArrayIndex]._id.toString();
+        const key = `${slot.dayIndex}-${timeSlotId}`;
+        if (!routineMap.has(key)) {
+          routineMap.set(key, []);
+        }
+        routineMap.get(key).push(slot);
+      } else if (slot.timeSlotId) {
+        // Fallback: Use timeSlotId directly if it exists
+        const timeSlotId = slot.timeSlotId.toString();
+        const key = `${slot.dayIndex}-${timeSlotId}`;
+        if (!routineMap.has(key)) {
+          routineMap.set(key, []);
+        }
+        routineMap.get(key).push(slot);
+      }
+    });
+
+    // Draw header row (time slots)
+    doc.fontSize(9).font('Helvetica-Bold');
+    
+    // Empty cell for day column
+    this._drawCell(doc, startX, startY, dayColumnWidth, rowHeight, '', '#f0f0f0', true);
+    
+    // Time slot headers
+    timeSlots.forEach((timeSlot, index) => {
+      const x = startX + dayColumnWidth + (index * timeColumnWidth);
+      this._drawCell(doc, x, startY, timeColumnWidth, rowHeight, 
+                     `${timeSlot.startTime}\n${timeSlot.endTime}`, '#f0f0f0', true);
+    });
+
+    // Draw day rows
+    days.forEach((day, dayIndex) => {
+      const y = startY + ((dayIndex + 1) * rowHeight);
+      
+      // Day name cell
+      doc.fontSize(10).font('Helvetica-Bold');
+      this._drawCell(doc, startX, y, dayColumnWidth, rowHeight, day, '#f8f8f8', true);
+      
+      // Time slot cells for this day
+      timeSlots.forEach((timeSlot, slotIndex) => {
+        const x = startX + dayColumnWidth + (slotIndex * timeColumnWidth);
+        const key = `${dayIndex}-${timeSlot._id.toString()}`;
+        const slotsInCell = routineMap.get(key) || [];
+        
+        let cellContent = '';
+        let bgColor = '#ffffff';
+        let isLab = false;
+        
+        if (slotsInCell.length > 0) {
+          const slot = slotsInCell[0]; // Primary slot
+          
+          // Determine if it's a lab class
+          isLab = slot.classType === 'P';
+          bgColor = isLab ? '#e3f2fd' : '#ffffff';
+          
+          if (slot.classType === 'BREAK') {
+            cellContent = 'BREAK';
+          } else {
+            // Show which class is using this room
+            const subjectCode = slot.subjectCode_display || slot.subjectId?.code || slot.display?.subjectCode || 'N/A';
+            const section = `${slot.programCode}-${slot.semester}${slot.section}`;
+            const teacherNames = slot.teacherShortNames_display?.join(', ') || 
+                               slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
+                               slot.display?.teacherShortNames?.join(', ') || 'TBD';
+            
+            cellContent = `${section}\n${subjectCode}\n${teacherNames}`;
+            
+            // Add lab group info if applicable
+            if (slot.labGroup && slot.labGroup !== 'ALL') {
+              cellContent += `\n(${slot.labGroup})`;
+            }
+          }
+        }
+        
+        this._drawCell(doc, x, y, timeColumnWidth, rowHeight, cellContent, bgColor, false, isLab);
+      });
+    });
+  }
+
+  /**
+   * Generate schedule grid aligned with frontend approach
+   * This method mirrors the frontend's timeSlot._id mapping system
+   */
+  _generateScheduleGridAligned(doc, routineSlots, timeSlots) {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    
+    console.log('🔄 Starting frontend-aligned grid generation...');
+    console.log(`TimeSlots: ${timeSlots.length}, RoutineSlots: ${routineSlots.length}`);
+    
+    // Debug: Show time slots order (simplified)
+    console.log('📋 TimeSlots order:');
+    console.log(`  ${timeSlots.map((ts, idx) => `[${idx}] ${ts.startTime}-${ts.endTime}`).join(', ')}`);
+    
+    // Grid dimensions - optimized for custom page size
+    const startX = doc.page.margins.left;
+    const startY = doc.y;
+    const totalWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const dayColumnWidth = 100; // Increased for better day name display
+    const timeColumnWidth = (totalWidth - dayColumnWidth) / timeSlots.length;
+    const headerRowHeight = 60; // Reduced header height as requested
+    const rowHeight = 120; // Increased significantly for better readability with custom height
+
+    // Step 1: Create routine lookup map and detect spanning classes
+    const routineMap = new Map();
+    const spanningClasses = new Map(); // dayIndex -> { spans: [{startSlot, endSlot, subject, info}] }
+    
+    console.log('🗺️ Creating routine mapping and detecting spanning classes...');
+    let mappedCount = 0;
+    
+    // First pass: Map all slots
+    routineSlots.forEach(slot => {
+      // The API uses slotIndex (1-based) to map to timeSlots array (0-based)
+      if (slot.slotIndex !== undefined && timeSlots[slot.slotIndex - 1]) {
+        // Convert 1-based slotIndex to 0-based array index
+        const timeSlotArrayIndex = slot.slotIndex - 1;
+        const timeSlotId = timeSlots[timeSlotArrayIndex]._id.toString();
+        const timeSlot = timeSlots[timeSlotArrayIndex];
+        const key = `${slot.dayIndex}-${timeSlotId}`;
+        
+        if (!routineMap.has(key)) {
+          routineMap.set(key, []);
+        }
+        routineMap.get(key).push(slot);
+        mappedCount++;
+        
+        // Only log first few mappings to avoid spam
+        if (mappedCount <= 3) {
+          console.log(`  ✅ Mapped: slotIndex ${slot.slotIndex} -> ${timeSlot.startTime}-${timeSlot.endTime} -> subject: ${slot.subjectId?.code || slot.subjectCode_display || 'N/A'}`);
+        }
+      } else if (slot.timeSlotId) {
+        // Fallback: Use timeSlotId directly if it exists
+        const timeSlotId = slot.timeSlotId.toString();
+        const key = `${slot.dayIndex}-${timeSlotId}`;
+        
+        if (!routineMap.has(key)) {
+          routineMap.set(key, []);
+        }
+        routineMap.get(key).push(slot);
+        mappedCount++;
+        
+        console.log(`  ✅ Direct mapping: timeSlotId ${timeSlotId} -> key: ${key} -> subject: ${slot.subjectId?.code || slot.subjectCode_display || 'N/A'}`);
+      } else {
+        console.warn(`  ❌ Unable to map slot: dayIndex=${slot.dayIndex}, slotIndex=${slot.slotIndex}, timeSlotId=${slot.timeSlotId}, available timeSlots=${timeSlots.length}`);
+      }
+    });
+
+    // Second pass: Detect spanning classes (same subject across consecutive slots) AND practical class groups
+    console.log('🔍 Detecting spanning classes and practical class groups...');
+    
+    days.forEach((day, dayIndex) => {
+      const daySlots = routineSlots.filter(slot => slot.dayIndex === dayIndex)
+                                   .sort((a, b) => a.slotIndex - b.slotIndex);
+      
+      if (daySlots.length === 0) return;
+      
+      let currentSpan = null;
+      const spans = [];
+      
+      // Group slots by slotIndex to find practical class groups
+      const slotGroups = new Map();
+      daySlots.forEach(slot => {
+        if (!slotGroups.has(slot.slotIndex)) {
+          slotGroups.set(slot.slotIndex, []);
+        }
+        slotGroups.get(slot.slotIndex).push(slot);
+      });
+      
+      // Find consecutive practical class groups (like slots 6,7,8 with multiple subjects)
+      const practicalGroups = [];
+      let currentPracticalGroup = null;
+      
+      for (const [slotIndex, slotsInSlot] of slotGroups.entries()) {
+        const hasPractical = slotsInSlot.some(slot => slot.classType === 'P');
+        const hasMultipleSubjects = slotsInSlot.length > 1;
+        
+        if (hasPractical && hasMultipleSubjects) {
+          if (!currentPracticalGroup) {
+            currentPracticalGroup = {
+              startSlot: slotIndex,
+              endSlot: slotIndex,
+              slots: [...slotsInSlot],
+              type: 'practical-group'
+            };
+          } else if (slotIndex === currentPracticalGroup.endSlot + 1) {
+            // Continue practical group
+            currentPracticalGroup.endSlot = slotIndex;
+            currentPracticalGroup.slots.push(...slotsInSlot);
+          } else {
+            // End current group and start new one
+            practicalGroups.push(currentPracticalGroup);
+            currentPracticalGroup = {
+              startSlot: slotIndex,
+              endSlot: slotIndex,
+              slots: [...slotsInSlot],
+              type: 'practical-group'
+            };
+          }
+        } else {
+          // End current practical group if exists
+          if (currentPracticalGroup) {
+            practicalGroups.push(currentPracticalGroup);
+            currentPracticalGroup = null;
+          }
+        }
+      }
+      
+      // Add final practical group if exists
+      if (currentPracticalGroup) {
+        practicalGroups.push(currentPracticalGroup);
+      }
+      
+      // Now detect regular spanning classes (same subject, consecutive slots)
+      daySlots.forEach((slot, index) => {
+        if (slot.classType === 'BREAK') {
+          // End current span if we hit a break
+          if (currentSpan) {
+            spans.push(currentSpan);
+            currentSpan = null;
+          }
+          return;
+        }
+        
+        const subjectIdentifier = slot.subjectId?.code || slot.subjectCode_display || 'N/A';
+        
+        if (!currentSpan) {
+          // Start potential new span
+          currentSpan = {
+            startSlot: slot.slotIndex,
+            endSlot: slot.slotIndex,
+            subject: subjectIdentifier,
+            classType: slot.classType,
+            slots: [slot],
+            type: 'subject-span'
+          };
+        } else if (currentSpan.subject === subjectIdentifier && 
+                   currentSpan.classType === slot.classType &&
+                   slot.slotIndex === currentSpan.endSlot + 1) {
+          // Continue current span
+          currentSpan.endSlot = slot.slotIndex;
+          currentSpan.slots.push(slot);
+        } else {
+          // End current span and start new one
+          spans.push(currentSpan);
+          currentSpan = {
+            startSlot: slot.slotIndex,
+            endSlot: slot.slotIndex,
+            subject: subjectIdentifier,
+            classType: slot.classType,
+            slots: [slot],
+            type: 'subject-span'
+          };
+        }
+        
+        // Check if this is the last slot
+        if (index === daySlots.length - 1 && currentSpan) {
+          spans.push(currentSpan);
+        }
+      });
+      
+      // Combine both types of spans
+      const allSpans = [...spans.filter(span => span.endSlot > span.startSlot), ...practicalGroups.filter(group => group.endSlot > group.startSlot)];
+      
+      if (allSpans.length > 0) {
+        spanningClasses.set(dayIndex, { spans: allSpans });
+        console.log(`📏 ${day} spanning classes:`, allSpans.map(s => {
+          if (s.type === 'practical-group') {
+            const subjects = [...new Set(s.slots.map(slot => slot.subjectId?.code || slot.subjectCode_display || 'N/A'))];
+            return `Practical Group [${subjects.join(', ')}] spans slots ${s.startSlot}-${s.endSlot}`;
+          } else {
+            return `${s.subject} [${s.classType}] spans slots ${s.startSlot}-${s.endSlot}`;
+          }
+        }));
+      }
+    });
+
+    console.log(`📊 Mapped ${mappedCount}/${routineSlots.length} routine slots successfully`);
+
+    // Step 2: Draw header row (time slots)
+    doc.fontSize(9).font('Helvetica-Bold');
+    
+    // Empty cell for day column
+    this._drawCell(doc, startX, startY, dayColumnWidth, this.headerRowHeight, '', '#f0f0f0', true);
+    
+    // Time slot headers
+    timeSlots.forEach((timeSlot, index) => {
+      const x = startX + dayColumnWidth + (index * timeColumnWidth);
+      const headerText = timeSlot.isBreak ? 'BREAK' : `${timeSlot.startTime}-${timeSlot.endTime}`;
+      this._drawCell(doc, x, startY, timeColumnWidth, this.headerRowHeight, headerText, '#f0f0f0', true);
+    });
+
+    // Step 3: Draw day rows
+    days.forEach((day, dayIndex) => {
+      const y = startY + this.headerRowHeight + (dayIndex * rowHeight);
+      
+      // Day name cell
+      doc.fontSize(10).font('Helvetica-Bold');
+      this._drawCell(doc, startX, y, dayColumnWidth, rowHeight, day, '#f8f8f8', true);
+      
+      // Time slot cells for this day with spanning class support
+      const daySpans = spanningClasses.get(dayIndex);
+      const drawnCells = new Set(); // Track which cells we've already drawn as part of spans
+      
+      timeSlots.forEach((timeSlot, slotIndex) => {
+        const x = startX + dayColumnWidth + (slotIndex * timeColumnWidth);
+        const timeSlotId = timeSlot._id.toString();
+        const key = `${dayIndex}-${timeSlotId}`;
+        const slotsInCell = routineMap.get(key) || [];
+        const currentSlotIndex = slotIndex + 1; // Convert to 1-based for comparison
+        
+        // Skip if this cell is part of a spanning class that we've already drawn
+        if (drawnCells.has(slotIndex)) {
+          return;
+        }
+        
+        // Check if this slot is part of a spanning class
+        let spanInfo = null;
+        if (daySpans) {
+          spanInfo = daySpans.spans.find(span => 
+            currentSlotIndex >= span.startSlot && currentSlotIndex <= span.endSlot
+          );
+        }
+        
+        if (dayIndex === 1 && slotIndex <= 3) { // Debug Monday first few slots
+          console.log(`🔍 Cell [${day}][${timeSlot.startTime}-${timeSlot.endTime}]: key=${key}, slots=${slotsInCell.length}`);
+          if (slotsInCell.length > 0) {
+            console.log(`    Subject: ${slotsInCell[0].subjectId?.code || slotsInCell[0].subjectCode_display || 'N/A'}`);
+          }
+          if (spanInfo) {
+            console.log(`    📏 Part of span: ${spanInfo.subject} [${spanInfo.startSlot}-${spanInfo.endSlot}]`);
+          }
+        }
+        
+        let cellContent = '';
+        let bgColor = '#ffffff';
+        let isLab = false;
+        let cellWidth = timeColumnWidth;
+        
+        // Handle spanning classes
+        if (spanInfo && currentSlotIndex === spanInfo.startSlot) {
+          console.log(`📏 Drawing spanning class: ${spanInfo.type === 'practical-group' ? 'Practical Group' : spanInfo.subject} [${spanInfo.startSlot}-${spanInfo.endSlot}]`);
+          
+          // Calculate width for spanning class
+          const spanLength = spanInfo.endSlot - spanInfo.startSlot + 1;
+          cellWidth = timeColumnWidth * spanLength;
+          
+          // Mark all slots in the span as drawn
+          for (let i = spanInfo.startSlot - 1; i < spanInfo.endSlot; i++) {
+            drawnCells.add(i);
+          }
+          
+          if (spanInfo.type === 'practical-group') {
+            // Handle practical group spanning (multiple subjects across multiple slots)
+            cellContent = this._formatPracticalGroupContent(spanInfo);
+            isLab = true;
+            bgColor = '#ffffff'; // Remove background color for practical groups
+          } else {
+            // Handle regular subject spanning (same subject across multiple slots)
+            const primarySlot = spanInfo.slots[0];
+            isLab = primarySlot.classType === 'P';
+            bgColor = '#ffffff'; // Remove background color for spanning classes
+            
+            cellContent = this._formatSpanningClassContent(spanInfo);
+          }
+        }
+        // Handle regular cells (non-spanning)
+        else if (!spanInfo) {
+          if (slotsInCell.length > 0) {
+            // Check for BREAK first
+            const breakSlot = slotsInCell.find(slot => slot.classType === 'BREAK');
+            if (breakSlot) {
+              cellContent = 'BREAK';
+              bgColor = '#f8f8f8';
+            } 
+            // Handle merged classes (multiple slots in same time slot)
+            else if (slotsInCell.length > 1) {
+              console.log(`🔀 Merged class detected: ${slotsInCell.length} slots in [${day}][${timeSlot.startTime}-${timeSlot.endTime}]`);
+              
+              // Remove background color for merged classes
+              bgColor = '#ffffff';
+              
+              // Process each slot and combine them
+              const classInfos = slotsInCell.map(slot => {
+                // Get subject name
+                const subjectName = slot.subjectName_display || slot.subjectId?.name || slot.display?.subjectName || 'N/A';
+                
+                // Get class type
+                const classType = this._getClassTypeText(slot.classType);
+                
+                // Get teacher names
+                const teacherNames = slot.teacherShortNames_display?.join(', ') || 
+                                   slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
+                                   slot.display?.teacherShortNames?.join(', ') || 'TBA';
+                
+                // Get room name
+                const roomName = slot.roomName_display || slot.roomId?.name || slot.display?.roomName || 'TBA';
+                
+                // Lab group indicator
+                let labGroupIndicator = '';
+                if ((slot.classType === 'P' || slot.isAlternativeWeek === true) && slot.labGroup && slot.labGroup !== 'ALL') {
+                  labGroupIndicator = ` (${slot.labGroup})`;
+                }
+                
+                return {
+                  subjectName: subjectName + labGroupIndicator,
+                  classType: classType,
+                  teacherNames: teacherNames,
+                  roomName: roomName
+                };
+              });
+              
+              // Format merged classes: each class on separate lines with divider
+              cellContent = classInfos.map(info => 
+                `${info.subjectName}\n[${info.classType}]\n${info.teacherNames}\n${info.roomName}`
+              ).join('\n──────\n');
+            }
+            // Handle elective classes
+            else if (slotsInCell[0].isElectiveClass && slotsInCell[0].subjectIds?.length > 1) {
+              // Multiple electives
+              cellContent = slotsInCell[0].subjectIds.map((subj, idx) => {
+                const teacher = slotsInCell[0].teacherIds?.[idx];
+                return `${subj.code}\n${teacher?.shortName || 'TBD'}`;
+              }).join('\n---\n');
+            }
+            // Handle single regular class
+            else {
+              const slot = slotsInCell[0];
+              
+              // Determine if it's a lab class
+              isLab = slot.classType === 'P';
+              bgColor = '#ffffff'; // Remove background color for single classes
+              
+              // Regular class - match frontend formatting exactly
+              const subjectName = slot.subjectName_display || slot.subjectId?.name || slot.display?.subjectName || 'N/A';
+              
+              // Class Type in brackets [L], [P], etc.
+              const classType = this._getClassTypeText(slot.classType);
+              
+              // Teacher short names
+              const teacherNames = slot.teacherShortNames_display?.join(', ') || 
+                                 slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
+                                 slot.display?.teacherShortNames?.join(', ') || 'TBA';
+              
+              // Room name - Enhanced extraction for better compatibility
+              const roomName = slot.roomName_display || 
+                              slot.roomId?.name || 
+                              slot.display?.roomName || 
+                              slot.room?.name ||
+                              slot.roomName ||
+                              slot.roomId ||
+                              'TBA';
+              
+              // Lab group indicator (for practical classes or alternative weeks)
+              let labGroupIndicator = '';
+              if ((slot.classType === 'P' || slot.isAlternativeWeek === true) && slot.labGroup && slot.labGroup !== 'ALL') {
+                labGroupIndicator = ` (${slot.labGroup})`;
+              }
+              
+              // Format content based on class type:
+              // For practical classes: show teacher and room side by side
+              // For lecture classes: show teacher and room on separate lines
+              if (slot.classType === 'P') {
+                // Practical class: Teacher | Room format for space efficiency
+                const teacherRoomLine = `${teacherNames} | ${roomName}`;
+                cellContent = `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherRoomLine}`;
+              } else {
+                // Lecture class: Traditional format with separate lines
+                cellContent = `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherNames}\n${roomName}`;
+              }
+            }
+          } else {
+            // Empty cell
+            cellContent = '';
+          }
+        }
+        
+        // Draw the cell (spanning or regular)
+        if (cellContent !== '' || !spanInfo) {
+          this._drawCell(doc, x, y, cellWidth, rowHeight, cellContent, bgColor, false, isLab);
+        }
+      });
+    });
+    
+    console.log('✅ Frontend-aligned grid generation completed');
+  }
+
+  /**
+   * Draw a single cell in the grid with proper text centering matching frontend
+   */
+  _drawCell(doc, x, y, width, height, text, bgColor = '#ffffff', isHeader = false, isLab = false) {
+    // Remove background colors for merged classes
+    if (text && text.includes('──────')) {
+      bgColor = '#ffffff'; // Use white background for merged classes
+    }
+    
+    // Draw cell background with border
+    doc.rect(x, y, width, height)
+       .lineWidth(0.5)
+       .fillAndStroke(bgColor, '#c0c0c0');
+    
+    // Draw text with proper centering and border lines for merged classes
+    if (text && text.trim()) {
+      // Split text into lines and check for merged classes
+      const lines = text.split('\n').filter(line => line.trim());
+      const isMergedClass = text.includes('──────'); // Merged class separator
+      
+      // Dynamic font sizing based on content length - Significantly increased for easy reading
+      let fontSize;
+      if (isHeader) {
+        fontSize = 14; // Increased from 12 to 14 for headers
+      } else if (isMergedClass || lines.length > 8) {
+        fontSize = 11; // Increased from 9 to 11 for merged classes with lots of content
+      } else if (lines.length > 5) {
+        fontSize = 12; // Increased from 10 to 12 for moderately long content
+      } else {
+        fontSize = 13; // Increased from 11 to 13 for standard content
+      }
+      
+      const font = isHeader ? 'Helvetica-Bold' : (isLab ? 'Helvetica-Bold' : 'Helvetica');
+      const textColor = '#333333'; // Use same color for all classes (lecture and practical)
+      
+      doc.fontSize(fontSize)
+         .font(font)
+         .fillColor(textColor);
+      
+      const lineHeight = fontSize * (isMergedClass ? 1.4 : 1.9); // Slightly reduced spacing while maintaining readability and ensuring all content fits
+      const totalTextHeight = lines.length * lineHeight;
+      
+      // Calculate vertical position - special handling for practical classes
+      let textStartY;
+      
+      // Check if this is a practical class with Group A/B content
+      const isPracticalClass = isLab || (text && text.includes('| ')) || (text && text.includes('Group A')) || (text && text.includes('Group B'));
+      
+      if (isPracticalClass) {
+        // For practical classes: decrease top margin, increase bottom margin but ensure content stays within boundaries
+        const topMarginReduction = height * 0.12; // Reduced from 0.15 to 0.12 for better boundary control
+        const cellCenterY = y + (height / 2);
+        const proposedStartY = cellCenterY - (totalTextHeight / 2) + (lineHeight * 0.4) - topMarginReduction;
+        
+        // Ensure text starts within cell boundaries with minimum top padding
+        const minTopPadding = 8; // Minimum pixels from top edge
+        const maxBottomY = y + height - 8; // Maximum Y position (8px from bottom edge)
+        
+        textStartY = Math.max(proposedStartY, y + minTopPadding);
+        
+        // If content would extend beyond bottom, adjust start position
+        if (textStartY + totalTextHeight > maxBottomY) {
+          textStartY = Math.max(y + minTopPadding, maxBottomY - totalTextHeight);
+        }
+      } else {
+        // For lecture classes: use standard centering with boundary checks
+        const cellCenterY = y + (height / 2);
+        const proposedStartY = cellCenterY - (totalTextHeight / 2) + (lineHeight * 0.75);
+        
+        // Ensure content stays within cell boundaries
+        const minTopPadding = 6;
+        const maxBottomY = y + height - 6;
+        
+        textStartY = Math.max(proposedStartY, y + minTopPadding);
+        if (textStartY + totalTextHeight > maxBottomY) {
+          textStartY = Math.max(y + minTopPadding, maxBottomY - totalTextHeight);
+        }
+      }
+      
+      // Draw each line with horizontal centering and border lines for separators
+      lines.forEach((line, index) => {
+        if (line.trim()) {
+          const lineY = textStartY + (index * lineHeight);
+          
+          // Safety check: ensure line doesn't go beyond cell boundaries
+          if (lineY < y || lineY + fontSize > y + height) {
+            return; // Skip lines that would go outside cell boundaries
+          }
+          
+          // Special handling for separator lines in merged classes
+          if (line.trim() === '──────') {
+            // Draw actual border line instead of text
+            const borderY = lineY + (fontSize * 0.3); // Adjust vertical position
+            const borderMargin = 10; // Margin from cell edges
+            
+            // Ensure border line is within cell boundaries
+            if (borderY >= y + 5 && borderY <= y + height - 5) {
+              doc.save();
+              doc.strokeColor('#888888')
+                 .lineWidth(0.8)
+                 .moveTo(x + borderMargin, borderY)
+                 .lineTo(x + width - borderMargin, borderY)
+                 .stroke();
+              doc.restore();
+              
+              // Reset text color after drawing border
+              doc.fillColor(textColor);
+            }
+          } else {
+            // Use PDFKit's built-in text alignment for perfect centering with improved spacing
+            doc.text(line.trim(), x + 6, lineY, { // Increased padding from 4 to 6 for better text layout
+              width: width - 12, // 6px padding on each side for proper text spacing
+              align: 'center',
+              baseline: 'top'
+            });
+          }
+        }
+      });
+      
+      // Reset fill color
+      doc.fillColor('#000000');
+    }
+  }
+
+  _formatPracticalGroupContent(practicalGroup) {
+    // Group slots by unique subjects with complete information
+    const subjectGroups = new Map();
+    
+    console.log('🔍 Debugging practical group slots:', practicalGroup.slots.length);
+    
+    practicalGroup.slots.forEach((slot, index) => {
+      // Debug logging for room information
+      console.log(`  Slot ${index + 1}:`, {
+        subject: slot.subjectId?.code || slot.subjectCode_display,
+        labGroup: slot.labGroup,
+        roomDisplay: slot.roomName_display,
+        roomId: slot.roomId?.name || slot.roomId,
+        displayRoom: slot.display?.roomName,
+        roomName: slot.roomName,
+        room: slot.room?.name || slot.room
+      });
+      
+      const subjectKey = `${slot.subjectId?.code || slot.subjectCode_display || 'N/A'}_${slot.labGroup || 'ALL'}`;
+      if (!subjectGroups.has(subjectKey)) {
+        // Enhanced room name extraction for better compatibility
+        let roomName = slot.roomName_display || 
+                      slot.roomId?.name || 
+                      slot.display?.roomName || 
+                      slot.room?.name ||
+                      slot.roomName ||
+                      'TBA';
+        
+        // Additional fallback for different data structures
+        if (!roomName || roomName === 'TBA') {
+          if (typeof slot.roomId === 'string') {
+            roomName = slot.roomId;
+          } else if (slot.room && typeof slot.room === 'string') {
+            roomName = slot.room;
+          }
+        }
+        
+        console.log(`  → Final room name for ${subjectKey} (Group ${slot.labGroup}): "${roomName}"`);
+        
+        subjectGroups.set(subjectKey, {
+          subject: subjectKey,
+          subjectName: slot.subjectName_display || slot.subjectId?.name || slot.display?.subjectName || 'N/A',
+          teacher: slot.teacherShortNames_display?.join(', ') || 
+                  slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
+                  slot.display?.teacherShortNames?.join(', ') || 
+                  slot.teacherId?.name || slot.teacherName_display || 'TBA',
+          room: roomName,
+          classType: slot.classType,
+          labGroup: slot.labGroup && slot.labGroup !== 'ALL' ? slot.labGroup : '',
+          slots: []
+        });
+      }
+      subjectGroups.get(subjectKey).slots.push(slot);
+    });
+    
+    // Format as merged practical classes with teacher and room side by side
+    const formattedSubjects = Array.from(subjectGroups.values()).map(group => {
+      const classType = this._getClassTypeText(group.classType);
+      const labGroupInfo = group.labGroup ? ` (${group.labGroup})` : '';
+      
+      // Format teacher and room side by side for practical classes
+      const teacherRoomLine = `${group.teacher} | ${group.room}`;
+      
+      return `${group.subjectName}${labGroupInfo}\n[${classType}]\n${teacherRoomLine}`;
+    });
+    
+    return formattedSubjects.join('\n──────\n');
+  }
+
+  _formatSpanningClassContent(span) {
+    const firstSlot = span.slots[0];
+    const subjectName = firstSlot.subjectName_display || firstSlot.subjectId?.name || firstSlot.display?.subjectName || 'N/A';
+    const classType = this._getClassTypeText(firstSlot.classType);
+    const teacherNames = firstSlot.teacherShortNames_display?.join(', ') || 
+                        firstSlot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
+                        firstSlot.display?.teacherShortNames?.join(', ') || 
+                        firstSlot.teacherId?.name || firstSlot.teacherName_display || 'TBA';
+    const roomName = firstSlot.roomName_display || 
+                    firstSlot.roomId?.name || 
+                    firstSlot.display?.roomName || 
+                    firstSlot.room?.name ||
+                    firstSlot.roomName ||
+                    firstSlot.roomId ||
+                    'TBA';
+    
+    // Lab group indicator
+    let labGroupIndicator = '';
+    if ((firstSlot.classType === 'P' || firstSlot.isAlternativeWeek === true) && firstSlot.labGroup && firstSlot.labGroup !== 'ALL') {
+      labGroupIndicator = ` (${firstSlot.labGroup})`;
+    }
+    
+    // Format based on class type for consistency
+    if (firstSlot.classType === 'P') {
+      // Practical class: Teacher | Room format for space efficiency
+      const teacherRoomLine = `${teacherNames} | ${roomName}`;
+      return `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherRoomLine}`;
+    } else {
+      // Lecture class: Traditional format with separate lines
+      return `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherNames}\n${roomName}`;
+    }
+  }
+
+  /**
+   * Get class type text matching frontend formatting
+   */
+  _getClassTypeText(classType) {
+    switch (classType) {
+      case 'L': return 'Lecture';
+      case 'P': return 'Practical';
+      case 'T': return 'Tutorial';
+      case 'BREAK': return 'Break';
+      default: return classType || 'N/A';
+    }
+  }
+
+}
+
+module.exports = PDFRoutineService;
