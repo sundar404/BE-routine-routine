@@ -18,7 +18,7 @@ class PDFRoutineService {
       'default': [842, 1400],     // Standard width, extended height
       'wide': [1200, 842],        // Wide format (landscape)
       'tall': [842, 1600],        // Extra tall for complex schedules
-      'large': [1200, 1600],      // Large format for detailed view
+      'large': [1200, 1300],      // Large format for detailed view
       'a4': [595, 842],           // Standard A4
       'a3': [842, 1191]           // A3 size
     };
@@ -29,6 +29,10 @@ class PDFRoutineService {
    * Determine optimal page size based on content complexity
    */
   _getOptimalPageSize(routineSlots, timeSlots) {
+    // For now, always use large format for better layout and readability
+    return 'large'; // Large format (1200x1600) for detailed view
+    
+    /* Previous dynamic sizing logic - temporarily disabled
     const totalSlots = routineSlots.length;
     const timeSlotCount = timeSlots.length;
     
@@ -52,6 +56,7 @@ class PDFRoutineService {
     } else {
       return 'default'; // Standard schedule
     }
+    */
   }
 
   /**
@@ -79,7 +84,7 @@ class PDFRoutineService {
       // Get time slots for grid structure
       const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
 
-      // Determine optimal page size based on schedule complexity
+      // Determine optimal page size based on schedule complexity (same as class routine)
       const optimalSize = this._getOptimalPageSize(routineSlots, timeSlots);
       const customSize = this._getCustomPageSize(optimalSize);
       
@@ -102,8 +107,8 @@ class PDFRoutineService {
         roomName: roomName
       });
 
-      // Generate room schedule grid using aligned method
-      this._generateRoomScheduleGridAligned(doc, routineSlots, timeSlots, roomName);
+      // Generate room schedule grid using the same method as class routine
+      this._generateScheduleGridAligned(doc, routineSlots, timeSlots, 'room');
 
       // Add footer
       this._generatePDFFooter(doc, `Room Schedule - ${roomName || 'Room'}`);
@@ -150,7 +155,7 @@ class PDFRoutineService {
       // Get time slots for grid structure
       const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
 
-      // Determine optimal page size based on schedule complexity
+      // Determine optimal page size based on schedule complexity (same as class routine)
       const optimalSize = this._getOptimalPageSize(routineSlots, timeSlots);
       const customSize = this._getCustomPageSize(optimalSize);
       
@@ -173,8 +178,8 @@ class PDFRoutineService {
         teacherName: teacherName
       });
 
-      // Generate teacher schedule grid using aligned method
-      this._generateTeacherScheduleGridAligned(doc, routineSlots, timeSlots, teacherName);
+      // Generate teacher schedule grid using the working aligned method
+      this._generateScheduleGridAligned(doc, routineSlots, timeSlots, 'teacher');
 
       // Add footer
       this._generatePDFFooter(doc, `Teacher Schedule - ${teacherName || 'Teacher'}`);
@@ -219,8 +224,19 @@ class PDFRoutineService {
         return null;
       }
 
-      // Create PDF document
-      const customSize = this._getCustomPageSize('tall'); // Use 'tall' format for combined schedules
+      // Get time slots for optimal sizing calculation
+      const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
+
+      // Create PDF document with dynamic sizing based on first teacher's schedule complexity
+      const firstTeacherSlots = await RoutineSlot.find({
+        teacherIds: teachers[0]._id,
+        isActive: true
+      });
+      const optimalSize = this._getOptimalPageSize(firstTeacherSlots, timeSlots);
+      const customSize = this._getCustomPageSize(optimalSize);
+      
+      console.log(`📄 Using ${optimalSize} page format (${customSize[0]}x${customSize[1]}) for combined teachers schedules`);
+      
       const doc = new PDFDocument({
         margin: 30,
         size: customSize,
@@ -257,9 +273,6 @@ class PDFRoutineService {
           continue;
         }
 
-        // Get time slots
-        const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
-
         // Generate header for this teacher
         this._generatePDFHeader(doc, {
           title: `Teacher Schedule - ${teacher.fullName}`,
@@ -267,8 +280,8 @@ class PDFRoutineService {
           teacherName: teacher.fullName
         });
 
-        // Generate teacher schedule grid
-        this._generateTeacherScheduleGridAligned(doc, routineSlots, timeSlots, teacher.fullName);
+        // Generate teacher schedule grid using the working aligned method (timeSlots already available)
+        this._generateScheduleGridAligned(doc, routineSlots, timeSlots);
 
         // Add footer
         this._generatePDFFooter(doc, `Teacher Schedule - ${teacher.fullName}`);
@@ -405,8 +418,21 @@ class PDFRoutineService {
 
       console.log(`Found sections: ${sections.join(', ')}`);
 
-      // Create PDF document with custom dimensions for better schedule display
-      const customSize = this._getCustomPageSize('tall'); // Use 'tall' format for combined schedules
+      // Get time slots for optimal sizing calculation
+      const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
+
+      // Create PDF document with dynamic sizing based on first section's schedule complexity
+      const firstSectionSlots = await RoutineSlot.find({
+        programCode: programCode.toUpperCase(),
+        semester: parseInt(semester),
+        section: sections[0].toUpperCase(),
+        isActive: true
+      });
+      const optimalSize = this._getOptimalPageSize(firstSectionSlots, timeSlots);
+      const customSize = this._getCustomPageSize(optimalSize);
+      
+      console.log(`📄 Using ${optimalSize} page format (${customSize[0]}x${customSize[1]}) for combined semester schedules`);
+      
       const doc = new PDFDocument({
         margin: 30,
         size: customSize,
@@ -445,8 +471,7 @@ class PDFRoutineService {
           continue;
         }
 
-        // Get time slots for this section
-        const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
+        // Get program info (timeSlots already available)
         const program = await Program.findOne({ code: programCode.toUpperCase() });
 
         // Generate header for this section
@@ -457,7 +482,7 @@ class PDFRoutineService {
           section: section.toUpperCase()
         });
 
-        // Generate grid for this section using aligned method
+        // Generate grid for this section using aligned method (timeSlots already available)
         this._generateScheduleGridAligned(doc, routineSlots, timeSlots);
 
         // Add footer
@@ -504,8 +529,19 @@ class PDFRoutineService {
         return null;
       }
 
-      // Create PDF document with custom dimensions for better schedule display
-      const customSize = this._getCustomPageSize('tall'); // Use 'tall' format for combined schedules
+      // Get time slots for optimal sizing calculation
+      const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
+
+      // Create PDF document with dynamic sizing based on first room's schedule complexity
+      const firstRoomSlots = await RoutineSlot.find({
+        roomId: rooms[0]._id,
+        isActive: true
+      });
+      const optimalSize = this._getOptimalPageSize(firstRoomSlots, timeSlots);
+      const customSize = this._getCustomPageSize(optimalSize);
+      
+      console.log(`📄 Using ${optimalSize} page format (${customSize[0]}x${customSize[1]}) for combined rooms schedules`);
+      
       const doc = new PDFDocument({
         margin: 30,
         size: customSize,
@@ -541,9 +577,6 @@ class PDFRoutineService {
           continue;
         }
 
-        // Get time slots
-        const timeSlots = await TimeSlot.find().sort({ sortOrder: 1 });
-
         // Generate header for this room
         this._generatePDFHeader(doc, {
           title: `Room Schedule - ${room.name}`,
@@ -551,8 +584,8 @@ class PDFRoutineService {
           roomName: room.name
         });
 
-        // Generate room schedule grid using aligned method
-        this._generateRoomScheduleGridAligned(doc, routineSlots, timeSlots, room.name);
+        // Generate room schedule grid using the same method as class routine (timeSlots already available)
+        this._generateScheduleGridAligned(doc, routineSlots, timeSlots);
 
         // Add footer
         this._generatePDFFooter(doc, `Room Schedule - ${room.name}`);
@@ -853,7 +886,7 @@ class PDFRoutineService {
    * Generate schedule grid aligned with frontend approach
    * This method mirrors the frontend's timeSlot._id mapping system
    */
-  _generateScheduleGridAligned(doc, routineSlots, timeSlots) {
+  _generateScheduleGridAligned(doc, routineSlots, timeSlots, pdfType = 'class') {
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
     
     console.log('🔄 Starting frontend-aligned grid generation...');
@@ -937,7 +970,7 @@ class PDFRoutineService {
         slotGroups.get(slot.slotIndex).push(slot);
       });
       
-      // Find consecutive practical class groups (like slots 6,7,8 with multiple subjects)
+      // Find consecutive practical class groups (like slots 6,7,8 - both single and multiple subjects)
       const practicalGroups = [];
       let currentPracticalGroup = null;
       
@@ -945,7 +978,8 @@ class PDFRoutineService {
         const hasPractical = slotsInSlot.some(slot => slot.classType === 'P');
         const hasMultipleSubjects = slotsInSlot.length > 1;
         
-        if (hasPractical && hasMultipleSubjects) {
+        // Detect practical groups: either multiple subjects OR single practical classes
+        if (hasPractical) {
           if (!currentPracticalGroup) {
             currentPracticalGroup = {
               startSlot: slotIndex,
@@ -954,11 +988,29 @@ class PDFRoutineService {
               type: 'practical-group'
             };
           } else if (slotIndex === currentPracticalGroup.endSlot + 1) {
-            // Continue practical group
-            currentPracticalGroup.endSlot = slotIndex;
-            currentPracticalGroup.slots.push(...slotsInSlot);
+            // Check if this continues the same practical class or is a new one
+            const currentSubjects = currentPracticalGroup.slots.map(s => s.subjectId?.code || s.subjectCode_display).filter(Boolean);
+            const newSubjects = slotsInSlot.map(s => s.subjectId?.code || s.subjectCode_display).filter(Boolean);
+            
+            // Continue if it's consecutive AND (same subjects OR both are practical)
+            const hasSameSubjects = currentSubjects.some(cs => newSubjects.includes(cs));
+            
+            if (hasSameSubjects || hasMultipleSubjects || currentPracticalGroup.slots.length === 1) {
+              // Continue practical group
+              currentPracticalGroup.endSlot = slotIndex;
+              currentPracticalGroup.slots.push(...slotsInSlot);
+            } else {
+              // End current group and start new one
+              practicalGroups.push(currentPracticalGroup);
+              currentPracticalGroup = {
+                startSlot: slotIndex,
+                endSlot: slotIndex,
+                slots: [...slotsInSlot],
+                type: 'practical-group'
+              };
+            }
           } else {
-            // End current group and start new one
+            // End current group and start new one (non-consecutive)
             practicalGroups.push(currentPracticalGroup);
             currentPracticalGroup = {
               startSlot: slotIndex,
@@ -1030,7 +1082,7 @@ class PDFRoutineService {
       });
       
       // Combine both types of spans
-      const allSpans = [...spans.filter(span => span.endSlot > span.startSlot), ...practicalGroups.filter(group => group.endSlot > group.startSlot)];
+      const allSpans = [...spans.filter(span => span.endSlot >= span.startSlot), ...practicalGroups.filter(group => group.endSlot >= group.startSlot)];
       
       if (allSpans.length > 0) {
         spanningClasses.set(dayIndex, { spans: allSpans });
@@ -1122,7 +1174,7 @@ class PDFRoutineService {
           
           if (spanInfo.type === 'practical-group') {
             // Handle practical group spanning (multiple subjects across multiple slots)
-            cellContent = this._formatPracticalGroupContent(spanInfo);
+            cellContent = this._formatPracticalGroupContent(spanInfo, pdfType);
             isLab = true;
             bgColor = '#ffffff'; // Remove background color for practical groups
           } else {
@@ -1131,7 +1183,7 @@ class PDFRoutineService {
             isLab = primarySlot.classType === 'P';
             bgColor = '#ffffff'; // Remove background color for spanning classes
             
-            cellContent = this._formatSpanningClassContent(spanInfo);
+            cellContent = this._formatSpanningClassContent(spanInfo, pdfType);
           }
         }
         // Handle regular cells (non-spanning)
@@ -1158,13 +1210,17 @@ class PDFRoutineService {
                 // Get class type
                 const classType = this._getClassTypeText(slot.classType);
                 
-                // Get teacher names
-                const teacherNames = slot.teacherShortNames_display?.join(', ') || 
-                                   slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
-                                   slot.display?.teacherShortNames?.join(', ') || 'TBA';
+                // Get teacher names (only if not teacher PDF)
+                const teacherNames = pdfType === 'teacher' ? '' : (
+                  slot.teacherShortNames_display?.join(', ') || 
+                  slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
+                  slot.display?.teacherShortNames?.join(', ') || 'TBA'
+                );
                 
-                // Get room name
-                const roomName = slot.roomName_display || slot.roomId?.name || slot.display?.roomName || 'TBA';
+                // Get room name (only if not room PDF)
+                const roomName = pdfType === 'room' ? '' : (
+                  slot.roomName_display || slot.roomId?.name || slot.display?.roomName || 'TBA'
+                );
                 
                 // Lab group indicator
                 let labGroupIndicator = '';
@@ -1180,10 +1236,24 @@ class PDFRoutineService {
                 };
               });
               
-              // Format merged classes: each class on separate lines with divider
-              cellContent = classInfos.map(info => 
-                `${info.subjectName}\n[${info.classType}]\n${info.teacherNames}\n${info.roomName}`
-              ).join('\n──────\n');
+              // Format merged classes based on PDF type
+              if (pdfType === 'teacher') {
+                // Teacher PDF: Show subject, class type, and room only
+                cellContent = classInfos.map(info => 
+                  info.roomName ? `${info.subjectName}\n[${info.classType}]\n${info.roomName}` : `${info.subjectName}\n[${info.classType}]`
+                ).join('\n──────\n');
+              } else if (pdfType === 'room') {
+                // Room PDF: Show subject, class type, and teacher only, plus section info
+                cellContent = classInfos.map(info => {
+                  const section = `${slotsInCell[0].programCode}-${slotsInCell[0].semester}${slotsInCell[0].section}`;
+                  return info.teacherNames ? `${section}\n${info.subjectName}\n[${info.classType}]\n${info.teacherNames}` : `${section}\n${info.subjectName}\n[${info.classType}]`;
+                }).join('\n──────\n');
+              } else {
+                // Class PDF: Show all information (original format)
+                cellContent = classInfos.map(info => 
+                  `${info.subjectName}\n[${info.classType}]\n${info.teacherNames}\n${info.roomName}`
+                ).join('\n──────\n');
+              }
             }
             // Handle elective classes
             else if (slotsInCell[0].isElectiveClass && slotsInCell[0].subjectIds?.length > 1) {
@@ -1201,25 +1271,29 @@ class PDFRoutineService {
               isLab = slot.classType === 'P';
               bgColor = '#ffffff'; // Remove background color for single classes
               
-              // Regular class - match frontend formatting exactly
+              // Regular class - format based on PDF type
               const subjectName = slot.subjectName_display || slot.subjectId?.name || slot.display?.subjectName || 'N/A';
               
               // Class Type in brackets [L], [P], etc.
               const classType = this._getClassTypeText(slot.classType);
               
-              // Teacher short names
-              const teacherNames = slot.teacherShortNames_display?.join(', ') || 
-                                 slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
-                                 slot.display?.teacherShortNames?.join(', ') || 'TBA';
+              // Teacher short names (only if not teacher PDF)
+              const teacherNames = pdfType === 'teacher' ? '' : (
+                slot.teacherShortNames_display?.join(', ') || 
+                slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
+                slot.display?.teacherShortNames?.join(', ') || 'TBA'
+              );
               
-              // Room name - Enhanced extraction for better compatibility
-              const roomName = slot.roomName_display || 
-                              slot.roomId?.name || 
-                              slot.display?.roomName || 
-                              slot.room?.name ||
-                              slot.roomName ||
-                              slot.roomId ||
-                              'TBA';
+              // Room name (only if not room PDF)
+              const roomName = pdfType === 'room' ? '' : (
+                slot.roomName_display || 
+                slot.roomId?.name || 
+                slot.display?.roomName || 
+                slot.room?.name ||
+                slot.roomName ||
+                slot.roomId ||
+                'TBA'
+              );
               
               // Lab group indicator (for practical classes or alternative weeks)
               let labGroupIndicator = '';
@@ -1227,16 +1301,37 @@ class PDFRoutineService {
                 labGroupIndicator = ` (${slot.labGroup})`;
               }
               
-              // Format content based on class type:
-              // For practical classes: show teacher and room side by side
-              // For lecture classes: show teacher and room on separate lines
-              if (slot.classType === 'P') {
-                // Practical class: Teacher | Room format for space efficiency
-                const teacherRoomLine = `${teacherNames} | ${roomName}`;
-                cellContent = `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherRoomLine}`;
+              // Format content based on PDF type and class type
+              if (pdfType === 'teacher') {
+                // Teacher PDF: Don't show teacher names, show room for context
+                if (slot.classType === 'P') {
+                  // Practical class: just show room if available
+                  cellContent = roomName ? `${subjectName}${labGroupIndicator}\n[${classType}]\n${roomName}` : `${subjectName}${labGroupIndicator}\n[${classType}]`;
+                } else {
+                  // Lecture class: show room on separate line
+                  cellContent = roomName ? `${subjectName}${labGroupIndicator}\n[${classType}]\n${roomName}` : `${subjectName}${labGroupIndicator}\n[${classType}]`;
+                }
+              } else if (pdfType === 'room') {
+                // Room PDF: Don't show room name, show teacher and section for context
+                const section = `${slot.programCode}-${slot.semester}${slot.section}`;
+                if (slot.classType === 'P') {
+                  // Practical class: show section and teacher side by side
+                  const sectionTeacherLine = teacherNames ? `${section} | ${teacherNames}` : section;
+                  cellContent = `${subjectName}${labGroupIndicator}\n[${classType}]\n${sectionTeacherLine}`;
+                } else {
+                  // Lecture class: show section and teacher on separate lines
+                  cellContent = teacherNames ? `${section}\n${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherNames}` : `${section}\n${subjectName}${labGroupIndicator}\n[${classType}]`;
+                }
               } else {
-                // Lecture class: Traditional format with separate lines
-                cellContent = `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherNames}\n${roomName}`;
+                // Class PDF: Show all information (original format)
+                if (slot.classType === 'P') {
+                  // Practical class: Teacher | Room format for space efficiency
+                  const teacherRoomLine = `${teacherNames} | ${roomName}`;
+                  cellContent = `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherRoomLine}`;
+                } else {
+                  // Lecture class: Traditional format with separate lines
+                  cellContent = `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherNames}\n${roomName}`;
+                }
               }
             }
           } else {
@@ -1379,7 +1474,7 @@ class PDFRoutineService {
     }
   }
 
-  _formatPracticalGroupContent(practicalGroup) {
+  _formatPracticalGroupContent(practicalGroup, pdfType = 'class') {
     // Group slots by unique subjects with complete information
     const subjectGroups = new Map();
     
@@ -1421,48 +1516,70 @@ class PDFRoutineService {
         subjectGroups.set(subjectKey, {
           subject: subjectKey,
           subjectName: slot.subjectName_display || slot.subjectId?.name || slot.display?.subjectName || 'N/A',
-          teacher: slot.teacherShortNames_display?.join(', ') || 
-                  slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
-                  slot.display?.teacherShortNames?.join(', ') || 
-                  slot.teacherId?.name || slot.teacherName_display || 'TBA',
-          room: roomName,
+          teacher: pdfType === 'teacher' ? '' : (
+            slot.teacherShortNames_display?.join(', ') || 
+            slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
+            slot.display?.teacherShortNames?.join(', ') || 
+            slot.teacherId?.name || slot.teacherName_display || 'TBA'
+          ),
+          room: pdfType === 'room' ? '' : roomName,
           classType: slot.classType,
           labGroup: slot.labGroup && slot.labGroup !== 'ALL' ? slot.labGroup : '',
+          programCode: slot.programCode,
+          semester: slot.semester,
+          section: slot.section,
           slots: []
         });
       }
       subjectGroups.get(subjectKey).slots.push(slot);
     });
     
-    // Format as merged practical classes with teacher and room side by side
+    // Format as merged practical classes based on PDF type
     const formattedSubjects = Array.from(subjectGroups.values()).map(group => {
       const classType = this._getClassTypeText(group.classType);
       const labGroupInfo = group.labGroup ? ` (${group.labGroup})` : '';
       
-      // Format teacher and room side by side for practical classes
-      const teacherRoomLine = `${group.teacher} | ${group.room}`;
-      
-      return `${group.subjectName}${labGroupInfo}\n[${classType}]\n${teacherRoomLine}`;
+      if (pdfType === 'teacher') {
+        // Teacher PDF: Show subject and room only (no teacher names)
+        return group.room ? `${group.subjectName}${labGroupInfo}\n[${classType}]\n${group.room}` : `${group.subjectName}${labGroupInfo}\n[${classType}]`;
+      } else if (pdfType === 'room') {
+        // Room PDF: Show subject and teacher with section info (no room names)
+        const section = `${group.programCode}-${group.semester}${group.section}`;
+        const sectionTeacherLine = group.teacher ? `${section} | ${group.teacher}` : section;
+        return `${group.subjectName}${labGroupInfo}\n[${classType}]\n${sectionTeacherLine}`;
+      } else {
+        // Class PDF: Show teacher and room side by side for practical classes
+        const teacherRoomLine = `${group.teacher} | ${group.room}`;
+        return `${group.subjectName}${labGroupInfo}\n[${classType}]\n${teacherRoomLine}`;
+      }
     });
     
     return formattedSubjects.join('\n──────\n');
   }
 
-  _formatSpanningClassContent(span) {
+  _formatSpanningClassContent(span, pdfType = 'class') {
     const firstSlot = span.slots[0];
     const subjectName = firstSlot.subjectName_display || firstSlot.subjectId?.name || firstSlot.display?.subjectName || 'N/A';
     const classType = this._getClassTypeText(firstSlot.classType);
-    const teacherNames = firstSlot.teacherShortNames_display?.join(', ') || 
-                        firstSlot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
-                        firstSlot.display?.teacherShortNames?.join(', ') || 
-                        firstSlot.teacherId?.name || firstSlot.teacherName_display || 'TBA';
-    const roomName = firstSlot.roomName_display || 
-                    firstSlot.roomId?.name || 
-                    firstSlot.display?.roomName || 
-                    firstSlot.room?.name ||
-                    firstSlot.roomName ||
-                    firstSlot.roomId ||
-                    'TBA';
+    
+    // Teacher names (only if not teacher PDF)
+    const teacherNames = pdfType === 'teacher' ? '' : (
+      firstSlot.teacherShortNames_display?.join(', ') || 
+      firstSlot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
+      firstSlot.display?.teacherShortNames?.join(', ') || 
+      firstSlot.teacherId?.name || firstSlot.teacherName_display || 'TBA'
+    );
+    
+    // Room name (only if not room PDF)
+    const roomName = pdfType === 'room' ? '' : (
+      firstSlot.roomName_display || 
+      firstSlot.roomId?.name || 
+      firstSlot.display?.roomName || 
+      firstSlot.room?.name ||
+      firstSlot.roomName ||
+      firstSlot.roomId ||
+      'TBA'
+    );
     
     // Lab group indicator
     let labGroupIndicator = '';
@@ -1470,14 +1587,31 @@ class PDFRoutineService {
       labGroupIndicator = ` (${firstSlot.labGroup})`;
     }
     
-    // Format based on class type for consistency
-    if (firstSlot.classType === 'P') {
-      // Practical class: Teacher | Room format for space efficiency
-      const teacherRoomLine = `${teacherNames} | ${roomName}`;
-      return `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherRoomLine}`;
+    // Format based on PDF type and class type
+    if (pdfType === 'teacher') {
+      // Teacher PDF: Don't show teacher names, show room for context
+      return roomName ? `${subjectName}${labGroupIndicator}\n[${classType}]\n${roomName}` : `${subjectName}${labGroupIndicator}\n[${classType}]`;
+    } else if (pdfType === 'room') {
+      // Room PDF: Don't show room name, show teacher and section for context
+      const section = `${firstSlot.programCode}-${firstSlot.semester}${firstSlot.section}`;
+      if (firstSlot.classType === 'P') {
+        // Practical class: show section and teacher side by side
+        const sectionTeacherLine = teacherNames ? `${section} | ${teacherNames}` : section;
+        return `${subjectName}${labGroupIndicator}\n[${classType}]\n${sectionTeacherLine}`;
+      } else {
+        // Lecture class: show section and teacher on separate lines
+        return teacherNames ? `${section}\n${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherNames}` : `${section}\n${subjectName}${labGroupIndicator}\n[${classType}]`;
+      }
     } else {
-      // Lecture class: Traditional format with separate lines
-      return `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherNames}\n${roomName}`;
+      // Class PDF: Show all information (original format)
+      if (firstSlot.classType === 'P') {
+        // Practical class: Teacher | Room format for space efficiency
+        const teacherRoomLine = `${teacherNames} | ${roomName}`;
+        return `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherRoomLine}`;
+      } else {
+        // Lecture class: Traditional format with separate lines
+        return `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherNames}\n${roomName}`;
+      }
     }
   }
 

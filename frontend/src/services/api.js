@@ -353,14 +353,14 @@ export const teachersAPI = {
   // PDF Export Methods (New)
   exportTeacherScheduleToPDF: (id) => {
     return queuedRequest(
-      () => api.get(`/pdf/teacher/${id}/export`, { responseType: 'blob' }),
+      () => api.get(`/routines/teacher/${id}/export-pdf`, { responseType: 'blob' }),
       `exporting schedule to PDF for teacher ${id}`
     );
   },
 
   exportAllTeachersSchedulesToPDF: () => {
     return queuedRequest(
-      () => api.get('/pdf/teacher/export/all', { responseType: 'blob' }),
+      () => api.get('/routines/teachers/export-pdf', { responseType: 'blob' }),
       'exporting all teachers schedules to PDF'
     );
   },
@@ -527,10 +527,10 @@ export const roomsAPI = {
   }),
   
   // PDF Export Methods (New)
-  exportRoomScheduleToPDF: (roomId) => api.get(`/pdf/room/${roomId}/export`, {
+  exportRoomScheduleToPDF: (roomId) => api.get(`/routines/room/${roomId}/export-pdf`, {
     responseType: 'blob'
   }),
-  exportAllRoomSchedulesToPDF: () => api.get('/pdf/room/export/all', {
+  exportAllRoomSchedulesToPDF: () => api.get('/routines/rooms/export-pdf', {
     responseType: 'blob'
   })
 };

@@ -4,6 +4,7 @@
  */
 
 import { message } from 'antd';
+import { routinesAPI, teachersAPI, roomsAPI } from './api';
 
 // Constants
 const PDF_CONFIG = {
@@ -46,10 +47,6 @@ const MESSAGES = {
  * PDF Export Service for Routines
  */
 class PDFExportService {
-  constructor(apiService) {
-    this.apiService = apiService;
-  }
-
   async exportRoutine(programCode, semester, section, options = {}) {
     const { onStart, onSuccess, onError } = options;
     
@@ -57,7 +54,7 @@ class PDFExportService {
       onStart?.();
       message.loading(MESSAGES.EXPORT.LOADING, 0);
 
-      const response = await this.apiService.exportRoutineToPDF(programCode, semester, section);
+      const response = await routinesAPI.exportRoutineToPDF(programCode, semester, section);
       
       // Create download
       const filename = this._generateRoutineFilename(programCode, semester, section);
@@ -83,7 +80,7 @@ class PDFExportService {
       onStart?.();
       message.loading('Generating combined semester PDF...', 0);
 
-      const response = await this.apiService.exportAllSemesterRoutinesToPDF(programCode, semester);
+      const response = await routinesAPI.exportAllSemesterRoutinesToPDF(programCode, semester);
       
       // Create download
       const filename = this._generateAllSemesterFilename(programCode, semester);
@@ -128,10 +125,6 @@ class PDFExportService {
  * PDF Export Service for Teachers
  */
 class TeacherPDFExportService {
-  constructor(apiService) {
-    this.apiService = apiService;
-  }
-
   async exportTeacherSchedule(teacherId, options = {}) {
     const { teacherName, onStart, onSuccess, onError } = options;
     
@@ -139,7 +132,7 @@ class TeacherPDFExportService {
       onStart?.();
       message.loading(MESSAGES.TEACHER.LOADING, 0);
 
-      const response = await this.apiService.exportTeacherScheduleToPDF(teacherId);
+      const response = await teachersAPI.exportTeacherScheduleToPDF(teacherId);
       
       // Create download
       const filename = this._generateTeacherFilename(teacherName || 'Teacher');
@@ -165,7 +158,7 @@ class TeacherPDFExportService {
       onStart?.();
       message.loading(MESSAGES.ALL_TEACHERS.LOADING, 0);
 
-      const response = await this.apiService.exportAllTeachersSchedulesToPDF();
+      const response = await teachersAPI.exportAllTeachersSchedulesToPDF();
       
       // Create download
       const filename = this._generateAllTeachersFilename();
@@ -211,10 +204,6 @@ class TeacherPDFExportService {
  * PDF Export Service for Rooms
  */
 class RoomPDFExportService {
-  constructor(apiService) {
-    this.apiService = apiService;
-  }
-
   async exportRoomSchedule(roomId, options = {}) {
     const { roomName, onStart, onSuccess, onError } = options;
     
@@ -222,7 +211,7 @@ class RoomPDFExportService {
       onStart?.();
       message.loading(MESSAGES.ROOM.LOADING, 0);
 
-      const response = await this.apiService.exportRoomScheduleToPDF(roomId);
+      const response = await roomsAPI.exportRoomScheduleToPDF(roomId);
       
       // Create download
       const filename = this._generateRoomFilename(roomName || 'Room');
@@ -241,14 +230,14 @@ class RoomPDFExportService {
     }
   }
 
-  async exportAllRoomSchedules(options = {}) {
+  async exportAllRoomsSchedules(options = {}) {
     const { onStart, onSuccess, onError } = options;
     
     try {
       onStart?.();
       message.loading(MESSAGES.ALL_ROOMS.LOADING, 0);
 
-      const response = await this.apiService.exportAllRoomSchedulesToPDF();
+      const response = await roomsAPI.exportAllRoomSchedulesToPDF();
       
       // Create download
       const filename = this._generateAllRoomsFilename();
@@ -267,25 +256,27 @@ class RoomPDFExportService {
     }
   }
 
+  // Utility methods for room exports
   _generateRoomFilename(roomName) {
-    const timestamp = new Date().toISOString().slice(0, 10);
+    const timestamp = format(new Date(), 'yyyyMMdd_HHmm');
     const safeName = roomName.replace(/[^a-zA-Z0-9]/g, '_');
-    return `${safeName}_Schedule_${timestamp}.pdf`;
+    return `Room_${safeName}_Schedule_${timestamp}.pdf`;
   }
 
   _generateAllRoomsFilename() {
-    const timestamp = new Date().toISOString().slice(0, 10);
+    const timestamp = format(new Date(), 'yyyyMMdd_HHmm');
     return `All_Rooms_Schedules_${timestamp}.pdf`;
   }
 
   _downloadFile(response, filename) {
-    const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', filename);
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
-    link.remove();
+    document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
   }
 }
@@ -295,10 +286,10 @@ class RoomPDFExportService {
  * Replaces ExcelService for PDF operations
  */
 class PDFService {
-  constructor(apiService) {
-    this.exportService = new PDFExportService(apiService);
-    this.teacherService = new TeacherPDFExportService(apiService);
-    this.roomService = new RoomPDFExportService(apiService);
+  constructor() {
+    this.exportService = new PDFExportService();
+    this.teacherService = new TeacherPDFExportService();
+    this.roomService = new RoomPDFExportService();
   }
 
   // Routine Export Methods

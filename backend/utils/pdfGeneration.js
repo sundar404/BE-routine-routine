@@ -351,6 +351,17 @@ class PDFGenerationService {
           });
         }
 
+        // Program-Semester-Section (show in teacher view mode)
+        if (classData.hideTeacher && group.programSemesterSection) {
+          doc.fontSize(6)
+             .fillColor('#666');
+          doc.text(group.programSemesterSection, contentX, groupCurrentY, {
+            width: contentWidth,
+            align: 'center'
+          });
+          groupCurrentY += 8;
+        }
+
         // Program-Semester-Section (show in room view mode)
         if (classData.hideRoom && group.programSemesterSection) {
           doc.fontSize(6)
@@ -461,6 +472,17 @@ class PDFGenerationService {
         lineBreak: false
       });
       currentY += 12;
+    }
+
+    // Program-Semester-Section (show in teacher view mode) - matches frontend
+    if (classData.hideTeacher && classData.programSemesterSection) {
+      doc.fontSize(7)
+         .fillColor('#666');
+      doc.text(classData.programSemesterSection, contentX, currentY, {
+        width: contentWidth,
+        align: 'center'
+      });
+      currentY += 10;
     }
 
     // Program-Semester-Section (show in room view mode) - matches frontend
@@ -628,6 +650,106 @@ class PDFGenerationService {
     }
     
     return classData.roomName || classData.room || 'TBA';
+  }
+
+  /**
+   * Create routine grid from processed data - matches frontend exactly
+   * Shared method for all PDF generators
+   */
+  createRoutineGridFromProcessedData(processedRoutine, timeSlots) {
+    const grid = {};
+    
+    // Initialize grid structure
+    this.dayNames.forEach((_, dayIndex) => {
+      grid[dayIndex] = {};
+      timeSlots.forEach((timeSlot, slotIndex) => {
+        grid[dayIndex][slotIndex] = null;
+      });
+    });
+
+    // Populate grid with processed data
+    Object.keys(processedRoutine).forEach(dayIndex => {
+      const dayData = processedRoutine[dayIndex];
+      Object.keys(dayData).forEach(slotIndex => {
+        const classData = dayData[slotIndex];
+        if (classData) {
+          grid[parseInt(dayIndex)][parseInt(slotIndex)] = classData;
+        }
+      });
+    });
+
+    return grid;
+  }
+
+  /**
+   * Fill routine data into PDF table - EXACTLY matches frontend logic
+   * Shared method for all PDF generators to ensure consistency
+   */
+  fillRoutineData(doc, routineGrid, timeSlots, dimensions, startY) {
+    const { dayColumnWidth, timeColumnWidth, headerHeight, rowHeight } = dimensions;
+
+    this.dayNames.forEach((dayName, dayIndex) => {
+      const rowY = startY + headerHeight + (dayIndex * rowHeight);
+      
+      timeSlots.forEach((timeSlot, slotIndex) => {
+        const cellX = doc.options.margins.left + dayColumnWidth + (slotIndex * timeColumnWidth);
+        
+        // CRITICAL FIX: Use slotIndex for data lookup (matches frontend exactly)
+        const classData = routineGrid[dayIndex][slotIndex];
+        
+        console.log(`PDF Processing cell day=${dayIndex}, slotIndex=${slotIndex}, time=${timeSlot.startTime}-${timeSlot.endTime}, hasData=${!!classData}, subject=${classData?.subjectName || 'empty'}`);
+        
+        // Handle break slots first
+        if (timeSlot.isBreak) {
+          this.fillClassCell(doc, null, cellX, rowY, timeColumnWidth, rowHeight, true);
+          return;
+        }
+        
+        // Frontend spanning logic implementation - matches RoutineGrid.jsx exactly
+        const isSpanMaster = classData?.spanMaster === true;
+        const isPartOfSpan = classData?.spanId != null;
+        
+        // Check if this cell should be hidden because it's covered by a span master
+        let isHiddenBySpan = false;
+        if (isPartOfSpan && !isSpanMaster) {
+          // Find the span master for this span group in the same day
+          const spanMasterId = classData.spanId;
+          const spanMaster = Object.values(routineGrid[dayIndex] || {}).find(
+            cell => cell?.spanId === spanMasterId && cell?.spanMaster === true
+          );
+          
+          if (spanMaster) {
+            isHiddenBySpan = true;
+          }
+        }
+        
+        // EXACT FRONTEND LOGIC: Hidden cells are completely skipped
+        if (isHiddenBySpan) {
+          console.log(`PDF Skipping hidden span cell: day=${dayIndex}, slot=${slotIndex}, spanId=${classData.spanId}`);
+          return;
+        }
+        
+        // Calculate colSpan only for span masters (matches frontend calculateColSpan)
+        let colSpan = 1;
+        let spanWidth = timeColumnWidth;
+        
+        if (isSpanMaster) {
+          // FIXED: Get all slots in the day and filter by spanId using proper slot indexing
+          const daySlots = routineGrid[dayIndex] || {};
+          const spanGroup = timeSlots
+            .map((_, idx) => daySlots[idx])  // Use timeSlots indices to get all possible slots
+            .filter(slot => slot?.spanId && slot.spanId.toString() === classData.spanId.toString());
+          
+          colSpan = spanGroup.length;
+          spanWidth = colSpan * timeColumnWidth;
+          
+          console.log(`PDF Rendering span master: day=${dayIndex}, slot=${slotIndex}, spanId=${classData.spanId}, colSpan=${colSpan}`);
+        }
+        
+        // Render the cell (normal cell, empty cell, or span master with colSpan)
+        this.fillClassCell(doc, classData, cellX, rowY, spanWidth, rowHeight, false);
+      });
+    });
   }
 }
 
@@ -994,322 +1116,7 @@ class RoutinePDFGenerator extends PDFGenerationService {
   }
 }
 
-class TeacherPDFGenerator extends PDFGenerationService {
-  constructor() {
-    super();
-  }
 
-  /**
-   * Generate PDF file for teacher schedule
-   * @param {Object} teacher - Teacher object
-   * @param {Object} scheduleData - Teacher's schedule data from API
-   * @returns {Buffer} - PDF file buffer
-   */
-  async generateTeacherSchedulePDF(teacher, scheduleData) {
-    try {
-      const doc = this.createDocument();
-
-      // Add header
-      const startY = this.addHeader(doc, {
-        title: `Teacher Schedule - ${teacher.fullName || teacher.name}`,
-        subtitle: `Email: ${teacher.email || 'N/A'} | Phone: ${teacher.phone || 'N/A'}`,
-        institutionName: 'IOE Pulchowk Campus',
-        academicYear: new Date().getFullYear()
-      });
-
-      // Get time slots (assuming they're provided in scheduleData)
-      const timeSlots = scheduleData.timeSlots || [];
-      
-      // Process teacher routine data
-      const routineGrid = this.processTeacherSchedule(scheduleData.routine || {});
-
-      // Calculate table dimensions
-      const dimensions = this.calculateTableDimensions(timeSlots, {
-        width: doc.page.width,
-        height: doc.page.height,
-        margins: doc.options.margins
-      });
-
-      // Draw table structure
-      this.drawTableStructure(doc, dimensions, timeSlots, startY);
-
-      // Fill cells with teacher schedule data
-      this.fillTeacherScheduleData(doc, routineGrid, timeSlots, dimensions, startY);
-
-      // Add footer
-      this.addFooter(doc);
-
-      // Finalize the PDF
-      doc.end();
-
-      return this.documentToBuffer(doc);
-
-    } catch (error) {
-      console.error('Error generating teacher schedule PDF:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Process teacher schedule data
-   */
-  processTeacherSchedule(routineData) {
-    const grid = {};
-    this.dayNames.forEach((_, dayIndex) => {
-      grid[dayIndex] = {};
-    });
-
-    // Process routine data similar to frontend
-    Object.keys(routineData).forEach(dayIndex => {
-      const dayData = routineData[dayIndex];
-      if (dayData && typeof dayData === 'object') {
-        Object.keys(dayData).forEach(slotIndex => {
-          const classData = dayData[slotIndex];
-          if (classData) {
-            // Add program-semester-section info for teacher view
-            grid[dayIndex][slotIndex] = {
-              ...classData,
-              hideTeacher: true, // Don't show teacher name in teacher's own schedule
-              programSemesterSection: classData.programSemesterSection
-            };
-          }
-        });
-      }
-    });
-
-    return grid;
-  }
-
-  /**
-   * Fill teacher schedule data into PDF table
-   */
-  fillTeacherScheduleData(doc, routineGrid, timeSlots, dimensions, startY) {
-    const { dayColumnWidth, timeColumnWidth, headerHeight, rowHeight } = dimensions;
-
-    this.dayNames.forEach((dayName, dayIndex) => {
-      const rowY = startY + headerHeight + (dayIndex * rowHeight);
-      
-      timeSlots.forEach((timeSlot, timeSlotIndex) => {
-        const cellX = doc.options.margins.left + dayColumnWidth + (timeSlotIndex * timeColumnWidth);
-        const classData = routineGrid[dayIndex][timeSlotIndex];
-        
-        this.fillTeacherClassCell(doc, classData, cellX, rowY, timeColumnWidth, rowHeight, timeSlot.isBreak);
-      });
-    });
-  }
-
-  /**
-   * Fill teacher-specific class cell
-   */
-  fillTeacherClassCell(doc, classData, x, y, width, height, isBreak = false) {
-    if (isBreak) {
-      this.fillClassCell(doc, null, x, y, width, height, true);
-      return;
-    }
-
-    if (!classData) {
-      this.fillClassCell(doc, null, x, y, width, height, false);
-      return;
-    }
-
-    // Render teacher-specific content
-    doc.rect(x, y, width, height)
-       .fillAndStroke(this.colors.background, this.colors.border);
-
-    const padding = 3;
-    const contentX = x + padding;
-    const contentWidth = width - (padding * 2);
-    let currentY = y + padding;
-    const lineHeight = 9;
-
-    // Subject name
-    doc.fontSize(8)
-       .font('Helvetica-Bold')
-       .fillColor(this.colors.text)
-       .text(this.getSubjectDisplayText(classData), contentX, currentY, {
-         width: contentWidth,
-         align: 'center'
-       });
-    currentY += lineHeight;
-
-    // Program-Semester-Section
-    if (classData.programSemesterSection) {
-      doc.fontSize(7)
-         .font('Helvetica')
-         .fillColor(this.colors.lightText)
-         .text(classData.programSemesterSection, contentX, currentY, {
-           width: contentWidth,
-           align: 'center'
-         });
-      currentY += lineHeight;
-    }
-
-    // Room
-    doc.fontSize(7)
-       .fillColor(this.colors.lightText)
-       .text(this.formatRoom(classData), contentX, currentY, {
-         width: contentWidth,
-         align: 'center'
-       });
-  }
-}
-
-class RoomPDFGenerator extends PDFGenerationService {
-  constructor() {
-    super();
-  }
-
-  /**
-   * Generate PDF file for room schedule
-   * @param {Object} room - Room object
-   * @param {Object} scheduleData - Room's schedule data from API
-   * @returns {Buffer} - PDF file buffer
-   */
-  async generateRoomSchedulePDF(room, scheduleData) {
-    try {
-      const doc = this.createDocument();
-
-      // Add header
-      const startY = this.addHeader(doc, {
-        title: `Room Schedule - ${room.name}`,
-        subtitle: `Capacity: ${room.capacity} | Type: ${room.roomType} | Floor: ${room.floor}`,
-        institutionName: 'IOE Pulchowk Campus',
-        academicYear: new Date().getFullYear()
-      });
-
-      // Get time slots
-      const timeSlots = scheduleData.timeSlots || [];
-      
-      // Process room routine data
-      const routineGrid = this.processRoomSchedule(scheduleData.routine || {});
-
-      // Calculate table dimensions
-      const dimensions = this.calculateTableDimensions(timeSlots, {
-        width: doc.page.width,
-        height: doc.page.height,
-        margins: doc.options.margins
-      });
-
-      // Draw table structure
-      this.drawTableStructure(doc, dimensions, timeSlots, startY);
-
-      // Fill cells with room schedule data
-      this.fillRoomScheduleData(doc, routineGrid, timeSlots, dimensions, startY);
-
-      // Add footer
-      this.addFooter(doc);
-
-      // Finalize the PDF
-      doc.end();
-
-      return this.documentToBuffer(doc);
-
-    } catch (error) {
-      console.error('Error generating room schedule PDF:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Process room schedule data
-   */
-  processRoomSchedule(routineData) {
-    const grid = {};
-    this.dayNames.forEach((_, dayIndex) => {
-      grid[dayIndex] = {};
-    });
-
-    Object.keys(routineData).forEach(dayIndex => {
-      const dayData = routineData[dayIndex];
-      if (dayData && typeof dayData === 'object') {
-        Object.keys(dayData).forEach(slotIndex => {
-          const classData = dayData[slotIndex];
-          if (classData) {
-            grid[dayIndex][slotIndex] = {
-              ...classData,
-              hideRoom: true // Don't show room name in room's own schedule
-            };
-          }
-        });
-      }
-    });
-
-    return grid;
-  }
-
-  /**
-   * Fill room schedule data into PDF table
-   */
-  fillRoomScheduleData(doc, routineGrid, timeSlots, dimensions, startY) {
-    const { dayColumnWidth, timeColumnWidth, headerHeight, rowHeight } = dimensions;
-
-    this.dayNames.forEach((dayName, dayIndex) => {
-      const rowY = startY + headerHeight + (dayIndex * rowHeight);
-      
-      timeSlots.forEach((timeSlot, timeSlotIndex) => {
-        const cellX = doc.options.margins.left + dayColumnWidth + (timeSlotIndex * timeColumnWidth);
-        const classData = routineGrid[dayIndex][timeSlotIndex];
-        
-        this.fillRoomClassCell(doc, classData, cellX, rowY, timeColumnWidth, rowHeight, timeSlot.isBreak);
-      });
-    });
-  }
-
-  /**
-   * Fill room-specific class cell
-   */
-  fillRoomClassCell(doc, classData, x, y, width, height, isBreak = false) {
-    if (isBreak) {
-      this.fillClassCell(doc, null, x, y, width, height, true);
-      return;
-    }
-
-    if (!classData) {
-      this.fillClassCell(doc, null, x, y, width, height, false);
-      return;
-    }
-
-    // Render room-specific content
-    doc.rect(x, y, width, height)
-       .fillAndStroke(this.colors.background, this.colors.border);
-
-    const padding = 3;
-    const contentX = x + padding;
-    const contentWidth = width - (padding * 2);
-    let currentY = y + padding;
-    const lineHeight = 9;
-
-    // Subject name
-    doc.fontSize(8)
-       .font('Helvetica-Bold')
-       .fillColor(this.colors.text)
-       .text(this.getSubjectDisplayText(classData), contentX, currentY, {
-         width: contentWidth,
-         align: 'center'
-       });
-    currentY += lineHeight;
-
-    // Program-Semester-Section
-    if (classData.programSemesterSection) {
-      doc.fontSize(7)
-         .font('Helvetica')
-         .fillColor(this.colors.lightText)
-         .text(classData.programSemesterSection, contentX, currentY, {
-           width: contentWidth,
-           align: 'center'
-         });
-      currentY += lineHeight;
-    }
-
-    // Teacher
-    doc.fontSize(7)
-       .fillColor(this.colors.lightText)
-       .text(this.formatTeachers(classData), contentX, currentY, {
-         width: contentWidth,
-         align: 'center'
-       });
-  }
-}
 
 // Factory function to create appropriate PDF generator
 function createPDFGenerator(type) {
@@ -1317,8 +1124,10 @@ function createPDFGenerator(type) {
     case 'routine':
       return new RoutinePDFGenerator();
     case 'teacher':
+      const TeacherPDFGenerator = require('./teacherPdfGeneration');
       return new TeacherPDFGenerator();
     case 'room':
+      const RoomPDFGenerator = require('./roomPdfGeneration');
       return new RoomPDFGenerator();
     default:
       throw new Error(`Unknown PDF generator type: ${type}`);
@@ -1327,24 +1136,18 @@ function createPDFGenerator(type) {
 
 // Export functions for backward compatibility and new scalable approach
 const routineGenerator = new RoutinePDFGenerator();
-const teacherGenerator = new TeacherPDFGenerator();
-const roomGenerator = new RoomPDFGenerator();
 
 module.exports = {
   // Backward compatible exports
   generateClassRoutinePDF: (programCode, semester, section) => 
     routineGenerator.generateClassRoutinePDF(programCode, semester, section),
   
-  generateTeacherSchedulePDF: (teacher, scheduleData) => 
-    teacherGenerator.generateTeacherSchedulePDF(teacher, scheduleData),
-  
-  generateRoomSchedulePDF: (room, scheduleData) => 
-    roomGenerator.generateRoomSchedulePDF(room, scheduleData),
+  // Backward compatibility exports
+  generateRoutinePDF: (scheduleData, timeSlots) => 
+    routineGenerator.generateSchedulePDF(scheduleData, timeSlots),
 
   // New scalable exports
   PDFGenerationService,
   RoutinePDFGenerator,
-  TeacherPDFGenerator,
-  RoomPDFGenerator,
   createPDFGenerator
 };

@@ -50,7 +50,12 @@ const {
   getVacantRooms,
   getVacantTeachers,
   getRoomVacancyForDay,
-  getRoomVacancyAnalytics
+  getRoomVacancyAnalytics,
+  // Teacher and Room PDF exports using working PDFRoutineService
+  exportTeacherScheduleToPDF,
+  exportAllTeachersSchedulesToPDF,
+  exportRoomScheduleToPDF,
+  exportAllRoomSchedulesToPDF
 } = require('../controllers/routineController');
 const { ConflictDetectionService } = require('../services/conflictDetection');
 const { protect, authorize } = require('../middleware/auth');
@@ -280,6 +285,34 @@ router.get('/:programCode/:semester/:section/export-pdf', exportRoutineToPDF);
 // @desc    Export all routines for a semester to PDF
 // @access  Public
 router.get('/:programCode/semester/:semester/export-pdf-all', exportAllSemesterRoutinesToPDF);
+
+// =====================================
+// TEACHER PDF EXPORT ROUTES (using working PDFRoutineService)
+// =====================================
+
+// @route   GET /api/routines/teacher/:teacherId/export-pdf
+// @desc    Export teacher schedule to PDF
+// @access  Public
+router.get('/teacher/:teacherId/export-pdf', exportTeacherScheduleToPDF);
+
+// @route   GET /api/routines/teachers/export-pdf
+// @desc    Export all teachers schedules to PDF
+// @access  Public
+router.get('/teachers/export-pdf', exportAllTeachersSchedulesToPDF);
+
+// =====================================
+// ROOM PDF EXPORT ROUTES (using working PDFRoutineService)
+// =====================================
+
+// @route   GET /api/routines/room/:roomId/export-pdf
+// @desc    Export room schedule to PDF
+// @access  Public
+router.get('/room/:roomId/export-pdf', exportRoomScheduleToPDF);
+
+// @route   GET /api/routines/rooms/export-pdf
+// @desc    Export all room schedules to PDF
+// @access  Public
+router.get('/rooms/export-pdf', exportAllRoomSchedulesToPDF);
 
 // @route   GET /api/routines/:programCode/:semester/:section
 // @desc    Get routine for specific program/semester/section

@@ -950,7 +950,7 @@ const RoomScheduleManagerContent = () => {
                 padding: '4px 6px' 
               }}>
                 {/* Debug info */}
-                {import.meta.env.DEV && (
+                {/* {import.meta.env.DEV && (
                   <div style={{ 
                     padding: '8px', 
                     backgroundColor: '#f0f8ff', 
@@ -968,7 +968,7 @@ const RoomScheduleManagerContent = () => {
                       roomScheduleLoading: roomScheduleLoading
                     }, null, 2)}
                   </div>
-                )}
+                )} */}
                 
                 {/* Show empty state or the grid */}
                 {(() => {

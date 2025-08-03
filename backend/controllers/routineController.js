@@ -4169,3 +4169,187 @@ exports.getVacantTeachers = async (req, res) => {
     });
   }
 };
+
+// =====================================
+// PDF EXPORT METHODS (using working PDFRoutineService)
+// =====================================
+
+/**
+ * Export teacher schedule to PDF
+ * @route GET /routines/teacher/:teacherId/export-pdf
+ */
+exports.exportTeacherScheduleToPDF = async (req, res) => {
+  try {
+    const { teacherId } = req.params;
+    const { academicYear } = req.query;
+
+    if (!teacherId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Teacher ID is required'
+      });
+    }
+
+    console.log(`📄 Generating teacher schedule PDF for: ${teacherId}`);
+
+    // Get teacher information
+    const teacher = await Teacher.findById(teacherId);
+    
+    if (!teacher) {
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
+    }
+
+    // Use the working PDFRoutineService (same as class routine)
+    const PDFRoutineService = require('../services/PDFRoutineService');
+    const pdfService = new PDFRoutineService();
+    const pdfBuffer = await pdfService.generateTeacherSchedulePDF(teacherId, teacher.fullName);
+
+    // Set response headers
+    const fileName = `${teacher.fullName.replace(/[^a-zA-Z0-9]/g, '_')}_Schedule_${new Date().toISOString().split('T')[0]}.pdf`;
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+
+    res.send(pdfBuffer);
+
+    console.log(`✅ Teacher schedule PDF generated: ${fileName}`);
+
+  } catch (error) {
+    console.error('❌ Teacher schedule PDF generation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate teacher schedule PDF',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+/**
+ * Export all teachers schedules to PDF
+ * @route GET /routines/teachers/export-pdf
+ */
+exports.exportAllTeachersSchedulesToPDF = async (req, res) => {
+  try {
+    const { academicYear } = req.query;
+
+    console.log('📄 Generating all teachers schedules PDF');
+
+    // Use the working PDFRoutineService (same as class routine)
+    const PDFRoutineService = require('../services/PDFRoutineService');
+    const pdfService = new PDFRoutineService();
+    const pdfBuffer = await pdfService.generateAllTeachersSchedulesPDF();
+
+    // Set response headers
+    const fileName = `All_Teachers_Schedules_${new Date().toISOString().split('T')[0]}.pdf`;
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+
+    res.send(pdfBuffer);
+
+    console.log(`✅ All teachers schedules PDF generated: ${fileName}`);
+
+  } catch (error) {
+    console.error('❌ All teachers schedules PDF generation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate all teachers schedules PDF',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+/**
+ * Export room schedule to PDF
+ * @route GET /routines/room/:roomId/export-pdf
+ */
+exports.exportRoomScheduleToPDF = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { academicYear } = req.query;
+
+    if (!roomId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Room ID is required'
+      });
+    }
+
+    console.log(`📄 Generating room schedule PDF for: ${roomId}`);
+
+    // Get room information
+    const room = await Room.findById(roomId);
+    
+    if (!room) {
+      return res.status(404).json({
+        success: false,
+        message: 'Room not found'
+      });
+    }
+
+    // Use the working PDFRoutineService (same as class routine)
+    const PDFRoutineService = require('../services/PDFRoutineService');
+    const pdfService = new PDFRoutineService();
+    const pdfBuffer = await pdfService.generateRoomSchedulePDF(roomId, room.name);
+
+    // Set response headers
+    const fileName = `${room.name.replace(/[^a-zA-Z0-9]/g, '_')}_Schedule_${new Date().toISOString().split('T')[0]}.pdf`;
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+
+    res.send(pdfBuffer);
+
+    console.log(`✅ Room schedule PDF generated: ${fileName}`);
+
+  } catch (error) {
+    console.error('❌ Room schedule PDF generation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate room schedule PDF',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+/**
+ * Export all room schedules to PDF
+ * @route GET /routines/rooms/export-pdf
+ */
+exports.exportAllRoomSchedulesToPDF = async (req, res) => {
+  try {
+    const { academicYear } = req.query;
+
+    console.log('📄 Generating all room schedules PDF');
+
+    // Use the working PDFRoutineService (same as class routine)
+    const PDFRoutineService = require('../services/PDFRoutineService');
+    const pdfService = new PDFRoutineService();
+    const pdfBuffer = await pdfService.generateAllRoomsSchedulePDF();
+
+    // Set response headers
+    const fileName = `All_Rooms_Schedules_${new Date().toISOString().split('T')[0]}.pdf`;
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+
+    res.send(pdfBuffer);
+
+    console.log(`✅ All room schedules PDF generated: ${fileName}`);
+
+  } catch (error) {
+    console.error('❌ All room schedules PDF generation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate all room schedules PDF',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
