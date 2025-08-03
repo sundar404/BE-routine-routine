@@ -1168,7 +1168,7 @@ class PDFRoutineService {
           cellWidth = timeColumnWidth * spanLength;
           
           // Mark all slots in the span as drawn
-          for (let i = spanInfo.startSlot - 1; i < spanInfo.endSlot; i++) {
+          for (let i = spanInfo.startSlot - 1; i <= spanInfo.endSlot - 1; i++) {
             drawnCells.add(i);
           }
           
