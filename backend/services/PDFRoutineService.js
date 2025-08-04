@@ -61,16 +61,29 @@ class PDFRoutineService {
 
   /**
    * Generate PDF for room schedule showing which classes are in the room at different times
+   * @param {string} roomId - The room ID
+   * @param {string} roomName - The room name
+   * @param {string} semesterFilter - Optional 'even', 'odd', or 'all' filter for semesters
    */
-  async generateRoomSchedulePDF(roomId, roomName) {
+  async generateRoomSchedulePDF(roomId, roomName, semesterFilter = 'all') {
     try {
-      console.log(`📄 Generating room schedule PDF for ${roomName || roomId}`);
+      console.log(`📄 Generating room schedule PDF for ${roomName || roomId} with semester filter: ${semesterFilter}`);
 
-      // Get all routine slots for this room
-      const routineSlots = await RoutineSlot.find({
+      // Build query based on semester filter
+      const query = {
         roomId: roomId,
         isActive: true
-      })
+      };
+      
+      // Add semester filter if specified
+      if (semesterFilter === 'even') {
+        query.semester = { $in: [2, 4, 6, 8] };  // Even semesters
+      } else if (semesterFilter === 'odd') {
+        query.semester = { $in: [1, 3, 5, 7] };  // Odd semesters
+      }
+
+      // Get all routine slots for this room
+      const routineSlots = await RoutineSlot.find(query)
         .populate('subjectId', 'name code')
         .populate('subjectIds', 'name code')
         .populate('teacherIds', 'fullName shortName')
@@ -131,16 +144,29 @@ class PDFRoutineService {
 
   /**
    * Generate PDF for teacher schedule showing when and where the teacher has classes
+   * @param {string} teacherId - The teacher ID
+   * @param {string} teacherName - The teacher name
+   * @param {string} semesterFilter - Optional 'even', 'odd', or 'all' filter for semesters
    */
-  async generateTeacherSchedulePDF(teacherId, teacherName) {
+  async generateTeacherSchedulePDF(teacherId, teacherName, semesterFilter = 'all') {
     try {
-      console.log(`📄 Generating teacher schedule PDF for ${teacherName || teacherId}`);
+      console.log(`📄 Generating teacher schedule PDF for ${teacherName || teacherId} with semester filter: ${semesterFilter}`);
 
-      // Get all routine slots for this teacher
-      const routineSlots = await RoutineSlot.find({
+      // Build query based on semester filter
+      const query = {
         teacherIds: teacherId,
         isActive: true
-      })
+      };
+      
+      // Add semester filter if specified
+      if (semesterFilter === 'even') {
+        query.semester = { $in: [2, 4, 6, 8] };  // Even semesters
+      } else if (semesterFilter === 'odd') {
+        query.semester = { $in: [1, 3, 5, 7] };  // Odd semesters
+      }
+
+      // Get all routine slots for this teacher
+      const routineSlots = await RoutineSlot.find(query)
         .populate('subjectId', 'name code')
         .populate('subjectIds', 'name code')
         .populate('teacherIds', 'fullName shortName')
