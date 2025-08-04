@@ -25,28 +25,28 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/42</span>
+                <span class='fraction'>0/50</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/51</span>
+                <span class='fraction'>0/65</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/16</span>
+                <span class='fraction'>0/20</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/40</span>
+                <span class='fraction'>0/47</span>
             </div>
         
             
@@ -230,7 +230,25 @@
 <a name='L165'></a><a href='#L165'>165</a>
 <a name='L166'></a><a href='#L166'>166</a>
 <a name='L167'></a><a href='#L167'>167</a>
-<a name='L168'></a><a href='#L168'>168</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L168'></a><a href='#L168'>168</a>
+<a name='L169'></a><a href='#L169'>169</a>
+<a name='L170'></a><a href='#L170'>170</a>
+<a name='L171'></a><a href='#L171'>171</a>
+<a name='L172'></a><a href='#L172'>172</a>
+<a name='L173'></a><a href='#L173'>173</a>
+<a name='L174'></a><a href='#L174'>174</a>
+<a name='L175'></a><a href='#L175'>175</a>
+<a name='L176'></a><a href='#L176'>176</a>
+<a name='L177'></a><a href='#L177'>177</a>
+<a name='L178'></a><a href='#L178'>178</a>
+<a name='L179'></a><a href='#L179'>179</a>
+<a name='L180'></a><a href='#L180'>180</a>
+<a name='L181'></a><a href='#L181'>181</a>
+<a name='L182'></a><a href='#L182'>182</a>
+<a name='L183'></a><a href='#L183'>183</a>
+<a name='L184'></a><a href='#L184'>184</a>
+<a name='L185'></a><a href='#L185'>185</a>
+<a name='L186'></a><a href='#L186'>186</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -366,6 +384,14 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -373,6 +399,14 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -381,6 +415,8 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -519,7 +555,7 @@ const formatSlotData = <span class="cstat-no" title="statement not covered" ><sp
 &nbsp;
 /**
  * Process multi-group classes for display
- * Combines Group A and Group B into a single multi-group class
+ * Combines Group A and Group B into a single multi-group class with enhanced separation
  */
 const processMultiGroupClasses = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >(r</span>outine) =&gt; {</span>
   const processed = <span class="cstat-no" title="statement not covered" >{};</span>
@@ -532,22 +568,40 @@ const processMultiGroupClasses = <span class="cstat-no" title="statement not cov
       const slotData = <span class="cstat-no" title="statement not covered" >dayData[slotIndex];</span>
       
 <span class="cstat-no" title="statement not covered" >      if (Array.isArray(slotData) &amp;&amp; slotData.length &gt; 1) {</span>
-        // Multi-group class - combine groups
+        // Multi-group class - combine groups with enhanced labeling
+        // Sort groups by labGroup to ensure consistent A, B ordering
+        const sortedGroups = <span class="cstat-no" title="statement not covered" >slotData.sort(<span class="fstat-no" title="function not covered" >(a</span>, b) =&gt; {</span>
+          const groupA = <span class="cstat-no" title="statement not covered" >a.labGroup || '';</span>
+          const groupB = <span class="cstat-no" title="statement not covered" >b.labGroup || '';</span>
+<span class="cstat-no" title="statement not covered" >          return groupA.localeCompare(groupB);</span>
+        });
+        
+        // Enhanced group processing with better labels
+        const enhancedGroups = <span class="cstat-no" title="statement not covered" >sortedGroups.map(<span class="fstat-no" title="function not covered" >gr</span>oup =&gt; (<span class="cstat-no" title="statement not covered" >{</span></span>
+          ...group,
+          // Ensure lab group label is properly formatted for PDF display
+          labGroupLabel: group.labGroup ? `Group ${group.labGroup}` : 'Group',
+          // Add section-aware display name for better identification
+          displayName: `${group.subjectName || group.subjectCode} (Group ${group.labGroup || '?'})`
+        }));
+        
 <span class="cstat-no" title="statement not covered" >        processed[dayIndex][slotIndex] = {</span>
           isMultiGroup: true,
-          groups: slotData,
-          // Use first group's data for main properties
-          subjectName: slotData[0].subjectName,
-          subjectCode: slotData[0].subjectCode,
-          classType: slotData[0].classType,
-          isElectiveClass: slotData.some(<span class="fstat-no" title="function not covered" >g </span>=&gt; <span class="cstat-no" title="statement not covered" >g.isElectiveClass)</span>,
-          electiveLabel: slotData.find(<span class="fstat-no" title="function not covered" >g </span>=&gt; <span class="cstat-no" title="statement not covered" >g.electiveLabel)</span>?.electiveLabel,
-          spanId: slotData[0].spanId,
-          spanMaster: slotData[0].spanMaster,
-          // Combined data
-          teacherNames: slotData.map(<span class="fstat-no" title="function not covered" >g </span>=&gt; <span class="cstat-no" title="statement not covered" >g.teacherNames)</span>.flat(),
-          teacherShortNames: slotData.map(<span class="fstat-no" title="function not covered" >g </span>=&gt; <span class="cstat-no" title="statement not covered" >g.teacherShortNames)</span>.flat(),
-          rooms: slotData.map(<span class="fstat-no" title="function not covered" >g </span>=&gt; <span class="cstat-no" title="statement not covered" >g.roomName)</span>
+          groups: enhancedGroups,
+          // Use combined subject names for main properties to show both subjects
+          subjectName: enhancedGroups.map(<span class="fstat-no" title="function not covered" >g </span>=&gt; <span class="cstat-no" title="statement not covered" >g.subjectName || g.subjectCode)</span>.join(' / '),
+          subjectCode: enhancedGroups.map(<span class="fstat-no" title="function not covered" >g </span>=&gt; <span class="cstat-no" title="statement not covered" >g.subjectCode)</span>.join(' / '),
+          classType: enhancedGroups[0].classType,
+          isElectiveClass: enhancedGroups.some(<span class="fstat-no" title="function not covered" >g </span>=&gt; <span class="cstat-no" title="statement not covered" >g.isElectiveClass)</span>,
+          electiveLabel: enhancedGroups.find(<span class="fstat-no" title="function not covered" >g </span>=&gt; <span class="cstat-no" title="statement not covered" >g.electiveLabel)</span>?.electiveLabel,
+          spanId: enhancedGroups[0].spanId,
+          spanMaster: enhancedGroups[0].spanMaster,
+          // Enhanced combined data with proper separation
+          teacherNames: enhancedGroups.map(<span class="fstat-no" title="function not covered" >g </span>=&gt; <span class="cstat-no" title="statement not covered" >g.teacherNames)</span>.flat(),
+          teacherShortNames: enhancedGroups.map(<span class="fstat-no" title="function not covered" >g </span>=&gt; <span class="cstat-no" title="statement not covered" >g.teacherShortNames)</span>.flat(),
+          rooms: enhancedGroups.map(<span class="fstat-no" title="function not covered" >g </span>=&gt; <span class="cstat-no" title="statement not covered" >g.roomName)</span>,
+          // Add section information for proper group mapping
+          section: enhancedGroups[0].section || 'AB'
         };
       } else {
         // Single class or single item from array
@@ -571,7 +625,7 @@ const processMultiGroupClasses = <span class="cstat-no" title="statement not cov
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-08-03T19:58:02.708Z
+                at 2025-08-04T09:16:04.554Z
             </div>
         <script src="../prettify.js"></script>
         <script>

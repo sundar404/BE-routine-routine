@@ -120,7 +120,7 @@ const formatSlotData = (slot, viewMode, options = {}) => {
 
 /**
  * Process multi-group classes for display
- * Combines Group A and Group B into a single multi-group class
+ * Combines Group A and Group B into a single multi-group class with enhanced separation
  */
 const processMultiGroupClasses = (routine) => {
   const processed = {};
@@ -133,22 +133,40 @@ const processMultiGroupClasses = (routine) => {
       const slotData = dayData[slotIndex];
       
       if (Array.isArray(slotData) && slotData.length > 1) {
-        // Multi-group class - combine groups
+        // Multi-group class - combine groups with enhanced labeling
+        // Sort groups by labGroup to ensure consistent A, B ordering
+        const sortedGroups = slotData.sort((a, b) => {
+          const groupA = a.labGroup || '';
+          const groupB = b.labGroup || '';
+          return groupA.localeCompare(groupB);
+        });
+        
+        // Enhanced group processing with better labels
+        const enhancedGroups = sortedGroups.map(group => ({
+          ...group,
+          // Ensure lab group label is properly formatted for PDF display
+          labGroupLabel: group.labGroup ? `Group ${group.labGroup}` : 'Group',
+          // Add section-aware display name for better identification
+          displayName: `${group.subjectName || group.subjectCode} (Group ${group.labGroup || '?'})`
+        }));
+        
         processed[dayIndex][slotIndex] = {
           isMultiGroup: true,
-          groups: slotData,
-          // Use first group's data for main properties
-          subjectName: slotData[0].subjectName,
-          subjectCode: slotData[0].subjectCode,
-          classType: slotData[0].classType,
-          isElectiveClass: slotData.some(g => g.isElectiveClass),
-          electiveLabel: slotData.find(g => g.electiveLabel)?.electiveLabel,
-          spanId: slotData[0].spanId,
-          spanMaster: slotData[0].spanMaster,
-          // Combined data
-          teacherNames: slotData.map(g => g.teacherNames).flat(),
-          teacherShortNames: slotData.map(g => g.teacherShortNames).flat(),
-          rooms: slotData.map(g => g.roomName)
+          groups: enhancedGroups,
+          // Use combined subject names for main properties to show both subjects
+          subjectName: enhancedGroups.map(g => g.subjectName || g.subjectCode).join(' / '),
+          subjectCode: enhancedGroups.map(g => g.subjectCode).join(' / '),
+          classType: enhancedGroups[0].classType,
+          isElectiveClass: enhancedGroups.some(g => g.isElectiveClass),
+          electiveLabel: enhancedGroups.find(g => g.electiveLabel)?.electiveLabel,
+          spanId: enhancedGroups[0].spanId,
+          spanMaster: enhancedGroups[0].spanMaster,
+          // Enhanced combined data with proper separation
+          teacherNames: enhancedGroups.map(g => g.teacherNames).flat(),
+          teacherShortNames: enhancedGroups.map(g => g.teacherShortNames).flat(),
+          rooms: enhancedGroups.map(g => g.roomName),
+          // Add section information for proper group mapping
+          section: enhancedGroups[0].section || 'AB'
         };
       } else {
         // Single class or single item from array

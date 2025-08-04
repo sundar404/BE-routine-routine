@@ -265,129 +265,130 @@ class PDFGenerationService {
     let currentY = y + padding;
     const lineHeight = 12;
 
-    // Check if this is a multi-group slot (Group A and Group B) - matches frontend
+    // Check if this is a multi-group slot (Group A and Group B) - CONSOLIDATED DISPLAY
     if (classData.isMultiGroup && classData.groups && classData.groups.length > 1) {
-      const groupCount = classData.groups.length;
-      const groupHeight = (height - padding * 2) / groupCount;
+      console.log('🔧 Multi-group rendering:', {
+        subject: classData.subjectName,
+        groupCount: classData.groups.length,
+        groups: classData.groups.map(g => ({
+          labGroup: g.labGroup,
+          subject: g.subjectName,
+          teacher: g.teacherShortNames,
+          room: g.roomName
+        }))
+      });
+
+      // CONSOLIDATED display for multi-group practical classes
       
-      classData.groups.forEach((group, index) => {
-        const groupY = currentY + (index * groupHeight);
-        
-        // Add more prominent border between groups (matches frontend styling)
-        if (index > 0) {
-          const borderY = groupY - 4;
-          // Draw a more visible separator line
-          doc.strokeColor('#cccccc')
-             .lineWidth(1.5)
-             .moveTo(contentX - 2, borderY)
-             .lineTo(contentX + contentWidth + 2, borderY)
-             .stroke();
-             
-          // Add subtle background shading for better separation
-          doc.rect(contentX - 2, borderY - 1, contentWidth + 4, 2)
-             .fillColor('#f8f8f8')
-             .fill();
-        }
-
-        let groupCurrentY = groupY + 4;
-
-        // Subject Name with Group indicator (matches frontend exactly)
-        doc.fontSize(10)
-           .font('Helvetica-Bold')
-           .fillColor(this.colors.text);
-        
-        const subjectText = this.getSubjectDisplayText(group);
-        doc.text(subjectText, contentX, groupCurrentY, {
-          width: contentWidth,
-          align: 'center',
-          lineBreak: false
-        });
-        groupCurrentY += 12;
-        
-        // Lab group label on same line as subject (if exists)
-        const labGroupLabel = this.getLabGroupLabel(classData, group);
-        if (labGroupLabel) {
-          doc.fontSize(8)
-             .font('Helvetica')
-             .fillColor('#666');
-          doc.text(labGroupLabel, contentX, groupCurrentY, {
-            width: contentWidth,
-            align: 'center'
-          });
-          groupCurrentY += 10;
-        }
-
-        // Class Type
+      // Subject Name - show the combined subject name
+      doc.fontSize(11)
+         .font('Helvetica-Bold')
+         .fillColor(this.colors.text);
+      
+      // Use the combined subject from multi-group processing or first group subject
+      const subjectText = classData.subjectName || classData.groups[0].subjectName;
+      doc.text(subjectText, contentX, currentY, {
+        width: contentWidth,
+        align: 'center',
+        lineBreak: false
+      });
+      currentY += 14;
+      
+      // Show consolidated group labels (Group A & Group B)
+      const groupLabels = classData.groups
+        .map(group => this.getLabGroupLabel(classData, group))
+        .filter(label => label)
+        .join(' & ');
+      
+      if (groupLabels) {
         doc.fontSize(9)
-           .font('Helvetica')
-           .fillColor('#666');
-        doc.text(`[${this.getClassTypeText(group.classType)}]`, contentX, groupCurrentY, {
+           .font('Helvetica-Bold')
+           .fillColor('#2c5234');
+        doc.text(groupLabels, contentX, currentY, {
           width: contentWidth,
           align: 'center'
         });
-        groupCurrentY += 10;
-
-        // Teacher (if not teacher view mode and not room view mode)
-        if (!classData.hideTeacher && !classData.hideRoom) {
-          doc.fontSize(8)
-             .fillColor('#666');
-          const teachers = Array.isArray(group.teacherShortNames) ? 
-                          group.teacherShortNames.join(', ') : 
-                          group.teacherShortNames || 'TBA';
-          doc.text(teachers, contentX, groupCurrentY, {
-            width: contentWidth,
-            align: 'center'
-          });
-          groupCurrentY += 10;
-        }
-
-        // Room (if not room view mode)
-        if (!classData.hideRoom) {
-          doc.fontSize(8)
-             .fillColor('#666');
-          doc.text(group.roomName || 'TBA', contentX, groupCurrentY, {
-            width: contentWidth,
-            align: 'center'
-          });
-        }
-
-        // Program-Semester-Section (show in teacher view mode)
-        if (classData.hideTeacher && group.programSemesterSection) {
-          doc.fontSize(6)
-             .fillColor('#666');
-          doc.text(group.programSemesterSection, contentX, groupCurrentY, {
-            width: contentWidth,
-            align: 'center'
-          });
-          groupCurrentY += 8;
-        }
-
-        // Program-Semester-Section (show in room view mode)
-        if (classData.hideRoom && group.programSemesterSection) {
-          doc.fontSize(6)
-             .fillColor('#666');
-          doc.text(group.programSemesterSection, contentX, groupCurrentY, {
-            width: contentWidth,
-            align: 'center'
-          });
-          groupCurrentY += 8;
-        }
-
-        // Teacher (show in room view mode)
-        if (classData.hideRoom) {
-          doc.fontSize(6)
-             .fillColor('#666');
-          const teachers = Array.isArray(group.teacherShortNames) ? 
-                          group.teacherShortNames.join(', ') : 
-                          group.teacherShortNames || group.teacherNames?.join(', ') || 'TBA';
-          doc.text(teachers, contentX, groupCurrentY, {
-            width: contentWidth,
-            align: 'center'
-          });
-        }
+        currentY += 12;
+      }
+      
+      // Class Type
+      doc.fontSize(9)
+         .font('Helvetica')
+         .fillColor('#666');
+      doc.text(`[${this.getClassTypeText(classData.groups[0].classType)}]`, contentX, currentY, {
+        width: contentWidth,
+        align: 'center'
       });
+      currentY += 12;
 
-      // Elective indicator for multi-group classes - displayed at the bottom (matches frontend)
+      // Teacher - CONSOLIDATED (show unique teachers only once)
+      if (!classData.hideTeacher && !classData.hideRoom) {
+        doc.fontSize(9)
+           .font('Helvetica')
+           .fillColor('#666');
+        
+        // Get unique teachers from all groups
+        const allTeachers = classData.groups.map(group => 
+          Array.isArray(group.teacherShortNames) ? 
+            group.teacherShortNames.join(', ') : 
+            group.teacherShortNames || 'TBA'
+        );
+        const uniqueTeachers = [...new Set(allTeachers)];
+        
+        doc.text(uniqueTeachers.join(' / '), contentX, currentY, {
+          width: contentWidth,
+          align: 'center'
+        });
+        currentY += 12;
+      }
+
+      // Room - CONSOLIDATED (show unique rooms only once)
+      if (!classData.hideRoom) {
+        doc.fontSize(9)
+           .font('Helvetica')
+           .fillColor('#666');
+        
+        // Get unique rooms from all groups
+        const allRooms = classData.groups.map(group => group.roomName || 'TBA');
+        const uniqueRooms = [...new Set(allRooms)];
+        
+        doc.text(uniqueRooms.join(' / '), contentX, currentY, {
+          width: contentWidth,
+          align: 'center'
+        });
+        currentY += 12;
+      }
+
+      // Program-Semester-Section (show in room view mode)
+      if (classData.hideRoom && classData.groups[0].programSemesterSection) {
+        doc.fontSize(8)
+           .fillColor('#666');
+        doc.text(classData.groups[0].programSemesterSection, contentX, currentY, {
+          width: contentWidth,
+          align: 'center'
+        });
+        currentY += 8;
+      }
+
+      // Teacher (show in room view mode)
+      if (classData.hideRoom) {
+        doc.fontSize(8)
+           .fillColor('#666');
+        // Same consolidation logic for room view
+        const allTeachers = classData.groups.map(group => 
+          Array.isArray(group.teacherShortNames) ? 
+            group.teacherShortNames.join(', ') : 
+            group.teacherShortNames || group.teacherNames?.join(', ') || 'TBA'
+        );
+        const uniqueTeachers = [...new Set(allTeachers)];
+        
+        doc.text(uniqueTeachers.join(' / '), contentX, currentY, {
+          width: contentWidth,
+          align: 'center'
+        });
+      }
+
+      // Elective indicator for multi-group classes - displayed at the bottom
       if (classData.isElectiveClass) {
         const electiveY = y + height - 18;
         doc.fontSize(7)
@@ -412,32 +413,27 @@ class PDFGenerationService {
 
     // Single group/class display (matches frontend logic exactly)
     
-    // Subject Name with Lab Group indicator (matches frontend)
+    // Subject Name with Lab Group indicator INLINE (matches frontend)
     doc.fontSize(11)
        .font('Helvetica-Bold')
        .fillColor(this.colors.text);
     
     const subjectText = this.getSubjectDisplayText(classData);
-    doc.text(subjectText, contentX, currentY, {
+    
+    // Show lab group indicator INLINE for practical classes or alternative week classes (matches frontend)
+    let displayText = subjectText;
+    if ((classData.classType === 'P' || classData.isAlternativeWeek === true) && classData.labGroup) {
+      const labGroupLabel = this.getLabGroupLabel(classData);
+      if (labGroupLabel) {
+        displayText = `${subjectText} ${labGroupLabel}`;
+      }
+    }
+    
+    doc.text(displayText, contentX, currentY, {
       width: contentWidth,
       align: 'center',
       lineBreak: false
     });
-
-    // Show lab group indicator for practical classes or alternative week classes (matches frontend)
-    if ((classData.classType === 'P' || classData.isAlternativeWeek === true) && classData.labGroup) {
-      const labGroupLabel = this.getLabGroupLabel(classData);
-      if (labGroupLabel) {
-        doc.fontSize(8)
-           .font('Helvetica')
-           .fillColor('#666');
-        doc.text(labGroupLabel, contentX, currentY + 14, {
-          width: contentWidth,
-          align: 'center'
-        });
-        currentY += 14;
-      }
-    }
     currentY += 14;
 
     // Class Type
@@ -618,15 +614,34 @@ class PDFGenerationService {
   }
 
   /**
-   * Format teacher names
+   * Format teacher names - SMART consolidation for multi-group
    */
   formatTeachers(classData) {
     if (classData.isMultiGroup && classData.groups) {
-      const teachers = classData.groups.map(group => 
-        Array.isArray(group.teacherShortNames) ? group.teacherShortNames.join(', ') : 
-        group.teacherShortNames || group.teacherNames || 'TBA'
-      );
-      return teachers.join(' / ');
+      // Check if all groups have the same teacher
+      const firstGroup = classData.groups[0];
+      const firstTeacher = Array.isArray(firstGroup.teacherShortNames) ? 
+                          firstGroup.teacherShortNames.join(', ') : 
+                          firstGroup.teacherShortNames || firstGroup.teacherNames || 'TBA';
+      
+      const allSameTeacher = classData.groups.every(group => {
+        const groupTeacher = Array.isArray(group.teacherShortNames) ? 
+                            group.teacherShortNames.join(', ') : 
+                            group.teacherShortNames || group.teacherNames || 'TBA';
+        return groupTeacher === firstTeacher;
+      });
+      
+      if (allSameTeacher) {
+        // Same teacher for all groups - show once
+        return firstTeacher;
+      } else {
+        // Different teachers - show all
+        const teachers = classData.groups.map(group => 
+          Array.isArray(group.teacherShortNames) ? group.teacherShortNames.join(', ') : 
+          group.teacherShortNames || group.teacherNames || 'TBA'
+        );
+        return teachers.join(' / ');
+      }
     }
     
     if (Array.isArray(classData.teacherShortNames)) {
@@ -641,12 +656,24 @@ class PDFGenerationService {
   }
 
   /**
-   * Format room information
+   * Format room information - SMART consolidation for multi-group
    */
   formatRoom(classData) {
     if (classData.isMultiGroup && classData.groups) {
-      const rooms = classData.groups.map(group => group.roomName || group.room || 'TBA');
-      return rooms.join(' / ');
+      // Check if all groups have the same room
+      const firstRoom = classData.groups[0].roomName || classData.groups[0].room || 'TBA';
+      const allSameRoom = classData.groups.every(group => 
+        (group.roomName || group.room || 'TBA') === firstRoom
+      );
+      
+      if (allSameRoom) {
+        // Same room for all groups - show once
+        return firstRoom;
+      } else {
+        // Different rooms - show all
+        const rooms = classData.groups.map(group => group.roomName || group.room || 'TBA');
+        return rooms.join(' / ');
+      }
     }
     
     return classData.roomName || classData.room || 'TBA';
@@ -883,168 +910,6 @@ class RoutinePDFGenerator extends PDFGenerationService {
     });
 
     return grid;
-  }
-
-  /**
-   * Create empty routine grid structure - EXACTLY matches frontend
-   */
-  createRoutineGrid(timeSlots) {
-    const grid = {};
-    this.dayNames.forEach((_, dayIndex) => {
-      grid[dayIndex] = {};
-      // Use timeSlot._id as keys (matches frontend exactly)
-      timeSlots.forEach(timeSlot => {
-        grid[dayIndex][timeSlot._id] = null;
-      });
-    });
-    return grid;
-  }
-
-  /**
-   * Populate routine grid with class data - ENHANCED to work with slotIndex
-   * This function has been updated to use slotIndex instead of timeSlotId
-   * to match the frontend behavior when timeSlotId is missing
-   */
-  populateRoutineGrid(grid, routineSlots, timeSlots) {
-    console.log('📊 PDF Generation - Enhanced Time slot mapping:');
-    console.log('Time slots:', timeSlots.map((ts, idx) => ({ 
-      idx, 
-      id: ts._id, 
-      sortOrder: ts.sortOrder, 
-      time: `${ts.startTime}-${ts.endTime}`,
-      isBreak: ts.isBreak 
-    })));
-    
-    // ENHANCED FIX: Create more robust mapping from slotIndex to timeSlot._id 
-    const slotIndexToTimeSlotId = {};
-    
-    // First try to use sortOrder property for mapping (if available)
-    if (timeSlots.every(slot => slot.sortOrder !== undefined)) {
-      console.log('Using sortOrder for mapping (most precise)');
-      // sortOrder is 1-based but slotIndex is 0-based, so adjust accordingly
-      timeSlots.forEach(timeSlot => {
-        const index = timeSlot.sortOrder - 1;
-        slotIndexToTimeSlotId[index] = timeSlot._id;
-      });
-    } else {
-      // Fall back to array position
-      console.log('Using array position for mapping (fallback)');
-      timeSlots.forEach((timeSlot, arrayIndex) => {
-        slotIndexToTimeSlotId[arrayIndex] = timeSlot._id;
-      });
-    }
-    
-    console.log('SlotIndex to TimeSlot._id mapping:', slotIndexToTimeSlotId);
-
-    // Group slots by day and timeSlot._id for multi-group handling (matches frontend logic)
-    const groupedSlots = {};
-
-    routineSlots.forEach(slot => {
-      console.log(`Processing slot: day=${slot.dayIndex}, slotIndex=${slot.slotIndex}, subject=${slot.subjectId?.name}`);
-      
-      // FIX: Use slotIndex directly instead of relying on timeSlotId
-      // This aligns with how the frontend displays the routine
-      const slotIndex = slot.slotIndex;
-      
-      // Map the slotIndex to corresponding timeSlot._id
-      const timeSlotId = slotIndexToTimeSlotId[slotIndex];
-      
-      if (!timeSlotId) {
-        console.warn(`No timeSlot._id found for slotIndex ${slotIndex}, skipping`);
-        return;
-      }
-      
-      const key = `${slot.dayIndex}-${timeSlotId}`;
-      if (!groupedSlots[key]) {
-        groupedSlots[key] = [];
-      }
-      groupedSlots[key].push(slot);
-    });
-
-    console.log('Grouped routine slots by timeSlot._id:', Object.keys(groupedSlots).map(key => ({
-      key,
-      count: groupedSlots[key].length,
-      subject: groupedSlots[key][0]?.subjectId?.name || 'N/A'
-    })));
-
-    // Process grouped slots - use timeSlot._id as grid keys (matches frontend)
-    Object.keys(groupedSlots).forEach(key => {
-      const [dayIndex, timeSlotId] = key.split('-');
-      const slots = groupedSlots[key];
-      const dayIdx = parseInt(dayIndex);
-
-      console.log(`Storing data for day=${dayIdx}, timeSlotId=${timeSlotId}`);
-
-      if (slots.length === 1) {
-        // Single class
-        const slot = slots[0];
-        grid[dayIdx][timeSlotId] = this.formatSingleClass(slot);
-      } else if (slots.length > 1) {
-        // Multiple classes (lab groups) - combine into single multi-group cell (matches frontend)
-        grid[dayIdx][timeSlotId] = this.formatMultiGroupClass(slots);
-      }
-    });
-
-    return grid;
-  }
-
-  /**
-   * Format single class data
-   */
-  formatSingleClass(slot) {
-    const teacherNames = slot.teacherIds?.map(t => t.shortName || t.fullName).join(', ') || 'TBA';
-    const roomName = slot.roomId?.name || 'TBA';
-    const subjectName = slot.subjectId?.name || 'N/A';
-    const subjectCode = slot.subjectId?.code || 'N/A';
-
-    return {
-      subjectName: subjectName,  // This should be the full name
-      subjectCode: subjectCode,
-      teacherNames: teacherNames,
-      teacherShortNames: teacherNames,
-      roomName: roomName,
-      classType: slot.classType,
-      labGroup: slot.labGroup,
-      isElectiveClass: slot.isElectiveClass,
-      electiveLabel: slot.electiveLabel,
-      isAlternativeWeek: slot.isAlternativeWeek,
-      notes: slot.notes,
-      // Add spanning information
-      spanId: slot.spanId,
-      spanMaster: slot.spanMaster
-    };
-  }
-
-  /**
-   * Format multi-group class data
-   */
-  formatMultiGroupClass(slots) {
-    const groups = slots.map(slot => this.formatSingleClass(slot));
-    
-    // Check if any of the groups have spanning information
-    const hasSpan = groups.some(g => g.spanId);
-    const spanMaster = groups.find(g => g.spanMaster);
-    
-    // Take slotIndex from first slot - CRITICAL for proper positioning
-    const firstSlot = slots[0];
-    
-    return {
-      isMultiGroup: true,
-      groups: groups,
-      // Store slotIndex for proper positioning - this is the key fix
-      slotIndex: firstSlot.slotIndex,
-      // Ensure we include dayIndex for proper positioning
-      dayIndex: firstSlot.dayIndex,
-      subjectName: groups.map(g => g.subjectName).join(' / '),
-      subjectCode: groups.map(g => g.subjectCode).join(' / '),
-      teacherNames: groups.map(g => g.teacherNames).join(' / '),
-      roomName: groups.map(g => g.roomName).join(' / '),
-      classType: groups[0].classType,
-      isElectiveClass: groups.some(g => g.isElectiveClass),
-      // Add spanning information from the master if exists
-      spanId: spanMaster?.spanId || groups[0]?.spanId,
-      spanMaster: spanMaster?.spanMaster || groups.some(g => g.spanMaster)
-    };
   }
 
   /**

@@ -1033,10 +1033,27 @@ class PDFRoutineService {
         practicalGroups.push(currentPracticalGroup);
       }
       
-      // Now detect regular spanning classes (same subject, consecutive slots)
+      // Create a set of slots that are part of practical groups to avoid duplicate spans
+      const practicalGroupSlots = new Set();
+      practicalGroups.forEach(group => {
+        for (let i = group.startSlot; i <= group.endSlot; i++) {
+          practicalGroupSlots.add(i);
+        }
+      });
+      
+      // Now detect regular spanning classes (same subject, consecutive slots) - excluding practical group slots
       daySlots.forEach((slot, index) => {
         if (slot.classType === 'BREAK') {
           // End current span if we hit a break
+          if (currentSpan) {
+            spans.push(currentSpan);
+            currentSpan = null;
+          }
+          return;
+        }
+        
+        // Skip slots that are part of practical groups
+        if (practicalGroupSlots.has(slot.slotIndex)) {
           if (currentSpan) {
             spans.push(currentSpan);
             currentSpan = null;
@@ -1222,10 +1239,19 @@ class PDFRoutineService {
                   slot.roomName_display || slot.roomId?.name || slot.display?.roomName || 'TBA'
                 );
                 
-                // Lab group indicator
+                // Enhanced lab group indicator with section awareness
                 let labGroupIndicator = '';
                 if ((slot.classType === 'P' || slot.isAlternativeWeek === true) && slot.labGroup && slot.labGroup !== 'ALL') {
-                  labGroupIndicator = ` (${slot.labGroup})`;
+                  // Apply section-aware group mapping for practical classes
+                  const section = slot.section || 'AB';
+                  let displayGroup = slot.labGroup;
+                  
+                  if (section === 'CD') {
+                    // For CD section: A maps to C, B maps to D
+                    displayGroup = slot.labGroup === 'A' ? 'C' : slot.labGroup === 'B' ? 'D' : slot.labGroup;
+                  }
+                  
+                  labGroupIndicator = ` (${displayGroup})`;
                 }
                 
                 return {
@@ -1295,10 +1321,19 @@ class PDFRoutineService {
                 'TBA'
               );
               
-              // Lab group indicator (for practical classes or alternative weeks)
+              // Enhanced lab group indicator with section awareness (for practical classes or alternative weeks)
               let labGroupIndicator = '';
               if ((slot.classType === 'P' || slot.isAlternativeWeek === true) && slot.labGroup && slot.labGroup !== 'ALL') {
-                labGroupIndicator = ` (${slot.labGroup})`;
+                // Apply section-aware group mapping
+                const section = slot.section || 'AB';
+                let displayGroup = slot.labGroup;
+                
+                if (section === 'CD') {
+                  // For CD section: A maps to C, B maps to D
+                  displayGroup = slot.labGroup === 'A' ? 'C' : slot.labGroup === 'B' ? 'D' : slot.labGroup;
+                }
+                
+                labGroupIndicator = ` (${displayGroup})`;
               }
               
               // Format content based on PDF type and class type
@@ -1475,7 +1510,36 @@ class PDFRoutineService {
   }
 
   _formatPracticalGroupContent(practicalGroup, pdfType = 'class') {
-    // Group slots by unique subjects with complete information
+    // Helper function to get unique entities by ID
+    const getUniqueEntities = (slots, entityAccessor, idExtractor, valueExtractor) => {
+      const entityMap = new Map();
+      
+      slots.forEach(slot => {
+        const entities = entityAccessor(slot);
+        if (!entities) return;
+        
+        if (Array.isArray(entities)) {
+          entities.forEach(entity => {
+            if (!entity) return;
+            const id = idExtractor(entity);
+            const value = valueExtractor(entity);
+            if (id && value) {
+              entityMap.set(id.toString(), value);
+            }
+          });
+        } else {
+          const id = idExtractor(entities);
+          const value = valueExtractor(entities);
+          if (id && value) {
+            entityMap.set(id.toString(), value);
+          }
+        }
+      });
+      
+      return [...entityMap.values()];
+    };
+
+    // Group slots by subject (not by subject+group) to properly merge multi-group classes
     const subjectGroups = new Map();
     
     console.log('🔍 Debugging practical group slots:', practicalGroup.slots.length);
@@ -1485,6 +1549,7 @@ class PDFRoutineService {
       console.log(`  Slot ${index + 1}:`, {
         subject: slot.subjectId?.code || slot.subjectCode_display,
         labGroup: slot.labGroup,
+        section: slot.section,
         roomDisplay: slot.roomName_display,
         roomId: slot.roomId?.name || slot.roomId,
         displayRoom: slot.display?.roomName,
@@ -1492,65 +1557,162 @@ class PDFRoutineService {
         room: slot.room?.name || slot.room
       });
       
-      const subjectKey = `${slot.subjectId?.code || slot.subjectCode_display || 'N/A'}_${slot.labGroup || 'ALL'}`;
-      if (!subjectGroups.has(subjectKey)) {
-        // Enhanced room name extraction for better compatibility
-        let roomName = slot.roomName_display || 
-                      slot.roomId?.name || 
-                      slot.display?.roomName || 
-                      slot.room?.name ||
-                      slot.roomName ||
-                      'TBA';
-        
-        // Additional fallback for different data structures
-        if (!roomName || roomName === 'TBA') {
-          if (typeof slot.roomId === 'string') {
-            roomName = slot.roomId;
-          } else if (slot.room && typeof slot.room === 'string') {
-            roomName = slot.room;
-          }
-        }
-        
-        console.log(`  → Final room name for ${subjectKey} (Group ${slot.labGroup}): "${roomName}"`);
-        
-        subjectGroups.set(subjectKey, {
-          subject: subjectKey,
+      // Group by subject only (not by subject+group) to enable proper merging
+      const subjectCode = slot.subjectId?.code || slot.subjectCode_display || 'N/A';
+      const section = slot.section || 'AB';
+      
+      if (!subjectGroups.has(subjectCode)) {
+        subjectGroups.set(subjectCode, {
+          subjectCode: subjectCode,
           subjectName: slot.subjectName_display || slot.subjectId?.name || slot.display?.subjectName || 'N/A',
-          teacher: pdfType === 'teacher' ? '' : (
-            slot.teacherShortNames_display?.join(', ') || 
-            slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
-            slot.display?.teacherShortNames?.join(', ') || 
-            slot.teacherId?.name || slot.teacherName_display || 'TBA'
-          ),
-          room: pdfType === 'room' ? '' : roomName,
           classType: slot.classType,
-          labGroup: slot.labGroup && slot.labGroup !== 'ALL' ? slot.labGroup : '',
-          programCode: slot.programCode,
-          semester: slot.semester,
-          section: slot.section,
-          slots: []
+          section: section,
+          groups: [] // Store different groups (A, B) for this subject
         });
       }
-      subjectGroups.get(subjectKey).slots.push(slot);
+      
+      // Enhanced room name extraction for better compatibility
+      let roomName = slot.roomName_display || 
+                    slot.roomId?.name || 
+                    slot.display?.roomName || 
+                    slot.room?.name ||
+                    slot.roomName ||
+                    'TBA';
+      
+      // Additional fallback for different data structures
+      if (!roomName || roomName === 'TBA') {
+        if (typeof slot.roomId === 'string') {
+          roomName = slot.roomId;
+        } else if (slot.room && typeof slot.room === 'string') {
+          roomName = slot.room;
+        }
+      }
+      
+      console.log(`  → Final room name for ${subjectCode} (Group ${slot.labGroup}): "${roomName}"`);
+      
+      // Enhanced group labeling with section awareness
+      const labGroup = slot.labGroup || 'ALL';
+      let enhancedLabGroup = '';
+      if (labGroup && labGroup !== 'ALL') {
+        // Apply section-aware group mapping
+        if (section === 'CD') {
+          // For CD section: A maps to C, B maps to D
+          enhancedLabGroup = labGroup === 'A' ? 'C' : labGroup === 'B' ? 'D' : labGroup;
+        } else {
+          // For AB section: Direct mapping A -> A, B -> B
+          enhancedLabGroup = labGroup;
+        }
+      }
+      
+      // Add this group to the subject
+      subjectGroups.get(subjectCode).groups.push({
+        labGroup: enhancedLabGroup,
+        originalLabGroup: labGroup,
+        teacher: pdfType === 'teacher' ? '' : (
+          slot.teacherShortNames_display?.join(', ') || 
+          slot.teacherIds?.map(t => t.shortName).filter(Boolean).join(', ') || 
+          slot.display?.teacherShortNames?.join(', ') || 
+          slot.teacherId?.name || slot.teacherName_display || 'TBA'
+        ),
+        room: pdfType === 'room' ? '' : roomName,
+        programCode: slot.programCode,
+        semester: slot.semester,
+        slot: slot
+      });
     });
     
-    // Format as merged practical classes based on PDF type
-    const formattedSubjects = Array.from(subjectGroups.values()).map(group => {
-      const classType = this._getClassTypeText(group.classType);
-      const labGroupInfo = group.labGroup ? ` (${group.labGroup})` : '';
+    // Format each subject with its groups properly merged
+    const formattedSubjects = Array.from(subjectGroups.values()).map(subject => {
+      const classType = this._getClassTypeText(subject.classType);
       
-      if (pdfType === 'teacher') {
-        // Teacher PDF: Show subject and room only (no teacher names)
-        return group.room ? `${group.subjectName}${labGroupInfo}\n[${classType}]\n${group.room}` : `${group.subjectName}${labGroupInfo}\n[${classType}]`;
-      } else if (pdfType === 'room') {
-        // Room PDF: Show subject and teacher with section info (no room names)
-        const section = `${group.programCode}-${group.semester}${group.section}`;
-        const sectionTeacherLine = group.teacher ? `${section} | ${group.teacher}` : section;
-        return `${group.subjectName}${labGroupInfo}\n[${classType}]\n${sectionTeacherLine}`;
+      // Get unique teachers and rooms for this subject using our helper
+      const allSubjectSlots = subject.groups.map(g => g.slot);
+      
+      // Get unique teachers for this subject
+      const uniqueTeachers = getUniqueEntities(
+        allSubjectSlots,
+        slot => slot.teacherIds,
+        entity => entity._id,
+        entity => entity.shortName || entity.fullName
+      );
+      
+      // Get unique rooms for this subject
+      const uniqueRooms = getUniqueEntities(
+        allSubjectSlots,
+        slot => slot.roomId,
+        entity => entity._id,
+        entity => entity.name
+      );
+      
+      // Get unique lab groups
+      const uniqueLabGroups = [...new Set(
+        allSubjectSlots
+          .filter(slot => slot.labGroup && slot.labGroup !== 'ALL')
+          .map(slot => {
+            // Apply section-aware group mapping
+            const section = slot.section || 'AB';
+            let displayGroup = slot.labGroup;
+            
+            if (section === 'CD') {
+              // For CD section: A maps to C, B maps to D
+              displayGroup = slot.labGroup === 'A' ? 'C' : slot.labGroup === 'B' ? 'D' : slot.labGroup;
+            }
+            
+            return displayGroup;
+          })
+      )].sort();
+      
+      console.log('📊 Consolidated subject data:', {
+        subject: subject.subjectCode,
+        uniqueTeachers,
+        uniqueRooms,
+        uniqueLabGroups
+      });
+      
+      // Sort groups by lab group for consistent A, B ordering
+      const sortedGroups = subject.groups.sort((a, b) => {
+        return (a.labGroup || '').localeCompare(b.labGroup || '');
+      });
+      
+      if (sortedGroups.length === 1) {
+        // Single group
+        const group = sortedGroups[0];
+        const labGroupInfo = group.labGroup ? `(Group ${group.labGroup})` : '';
+        
+        if (pdfType === 'teacher') {
+          // Teacher PDF: Show subject and room only (no teacher names)
+          return group.room ? `${labGroupInfo} ${subject.subjectName}\n[${classType}]\n${group.room}` : `${labGroupInfo} ${subject.subjectName}\n[${classType}]`;
+        } else if (pdfType === 'room') {
+          // Room PDF: Show subject and teacher with section info (no room names)
+          const section = `${group.programCode}-${group.semester}${subject.section}`;
+          const sectionTeacherLine = group.teacher ? `${section} | ${group.teacher}` : section;
+          return `${labGroupInfo} ${subject.subjectName}\n[${classType}]\n${sectionTeacherLine}`;
+        } else {
+          // Class PDF: Show teacher and room side by side for practical classes with enhanced layout
+          return `${labGroupInfo} ${subject.subjectName}\n[${classType}]\n${group.teacher} | ${group.room}`;
+        }
       } else {
-        // Class PDF: Show teacher and room side by side for practical classes
-        const teacherRoomLine = `${group.teacher} | ${group.room}`;
-        return `${group.subjectName}${labGroupInfo}\n[${classType}]\n${teacherRoomLine}`;
+        // Multiple groups - show as merged multi-group class using our consolidated data
+        const groupLabels = uniqueLabGroups.length > 0 
+          ? uniqueLabGroups.map(g => `Group ${g}`).join(' & ')
+          : 'Multiple Groups';
+        
+        if (pdfType === 'teacher') {
+          // Teacher PDF: Show subject with group info and rooms
+          const rooms = uniqueRooms.join(' / ');
+          return rooms ? `(${groupLabels}) ${subject.subjectName}\n[${classType}]\n${rooms}` : `(${groupLabels}) ${subject.subjectName}\n[${classType}]`;
+        } else if (pdfType === 'room') {
+          // Room PDF: Show subject with group info and teachers with section
+          const section = `${sortedGroups[0].programCode}-${sortedGroups[0].semester}${subject.section}`;
+          const teachers = uniqueTeachers.join(' / ');
+          const sectionTeacherLine = teachers ? `${section} | ${teachers}` : section;
+          return `(${groupLabels}) ${subject.subjectName}\n[${classType}]\n${sectionTeacherLine}`;
+        } else {
+          // Class PDF: Show merged groups with teachers and rooms on the same line
+          const teachersLine = uniqueTeachers.join(', ');
+          const roomsLine = uniqueRooms.join(', ');
+          return `(${groupLabels}) ${subject.subjectName}\n[${classType}]\n${teachersLine} | ${roomsLine}`;
+        }
       }
     });
     
@@ -1581,36 +1743,44 @@ class PDFRoutineService {
       'TBA'
     );
     
-    // Lab group indicator
+    // Enhanced lab group indicator with section awareness
     let labGroupIndicator = '';
     if ((firstSlot.classType === 'P' || firstSlot.isAlternativeWeek === true) && firstSlot.labGroup && firstSlot.labGroup !== 'ALL') {
-      labGroupIndicator = ` (${firstSlot.labGroup})`;
+      // Apply section-aware group mapping
+      const section = firstSlot.section || 'AB';
+      let displayGroup = firstSlot.labGroup;
+      
+      if (section === 'CD') {
+        // For CD section: A maps to C, B maps to D
+        displayGroup = firstSlot.labGroup === 'A' ? 'C' : firstSlot.labGroup === 'B' ? 'D' : firstSlot.labGroup;
+      }
+      
+      labGroupIndicator = `(Group ${displayGroup})`;
     }
     
     // Format based on PDF type and class type
     if (pdfType === 'teacher') {
       // Teacher PDF: Don't show teacher names, show room for context
-      return roomName ? `${subjectName}${labGroupIndicator}\n[${classType}]\n${roomName}` : `${subjectName}${labGroupIndicator}\n[${classType}]`;
+      return roomName ? `${labGroupIndicator} ${subjectName}\n[${classType}]\n${roomName}` : `${labGroupIndicator} ${subjectName}\n[${classType}]`;
     } else if (pdfType === 'room') {
       // Room PDF: Don't show room name, show teacher and section for context
       const section = `${firstSlot.programCode}-${firstSlot.semester}${firstSlot.section}`;
       if (firstSlot.classType === 'P') {
         // Practical class: show section and teacher side by side
         const sectionTeacherLine = teacherNames ? `${section} | ${teacherNames}` : section;
-        return `${subjectName}${labGroupIndicator}\n[${classType}]\n${sectionTeacherLine}`;
+        return `${labGroupIndicator} ${subjectName}\n[${classType}]\n${sectionTeacherLine}`;
       } else {
         // Lecture class: show section and teacher on separate lines
-        return teacherNames ? `${section}\n${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherNames}` : `${section}\n${subjectName}${labGroupIndicator}\n[${classType}]`;
+        return teacherNames ? `${section}\n${labGroupIndicator} ${subjectName}\n[${classType}]\n${teacherNames}` : `${section}\n${labGroupIndicator} ${subjectName}\n[${classType}]`;
       }
     } else {
       // Class PDF: Show all information (original format)
       if (firstSlot.classType === 'P') {
         // Practical class: Teacher | Room format for space efficiency
-        const teacherRoomLine = `${teacherNames} | ${roomName}`;
-        return `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherRoomLine}`;
+        return `${labGroupIndicator} ${subjectName}\n[${classType}]\n${teacherNames} | ${roomName}`;
       } else {
-        // Lecture class: Traditional format with separate lines
-        return `${subjectName}${labGroupIndicator}\n[${classType}]\n${teacherNames}\n${roomName}`;
+        // Lecture class: Traditional format with teacher | room on same line
+        return `${labGroupIndicator} ${subjectName}\n[${classType}]\n${teacherNames} | ${roomName}`;
       }
     }
   }
