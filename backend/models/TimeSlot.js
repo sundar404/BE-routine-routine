@@ -67,7 +67,34 @@ const timeSlotDefinitionSchema = new mongoose.Schema({
     min: 0,
     max: 6
     // [0,1,2,3,4,5] for weekdays
-  }]
+  }],
+  
+  // Context-specific fields for program/semester/section time slots
+  programCode: {
+    type: String,
+    default: null,
+    trim: true
+    // null = global time slot, specific value = program-specific
+  },
+  semester: {
+    type: Number,
+    default: null,
+    min: 1,
+    max: 8
+    // null = global time slot, specific value = semester-specific
+  },
+  section: {
+    type: String,
+    default: null,
+    trim: true,
+    uppercase: true
+    // null = global time slot, specific value = section-specific
+  },
+  isGlobal: {
+    type: Boolean,
+    default: true
+    // true = available to all, false = context-specific
+  }
 }, {
   _id: false, // Disable auto-generation since we're using custom _id
   versionKey: false

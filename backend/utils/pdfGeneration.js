@@ -680,36 +680,65 @@ class PDFGenerationService {
   }
 
   /**
-   * Create routine grid from processed data - matches frontend exactly
-   * Shared method for all PDF generators
+   * Parse time string to minutes for comparison
    */
-  createRoutineGridFromProcessedData(processedRoutine, timeSlots) {
+  parseTime(timeStr) {
+    if (!timeStr) return 0;
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return hours * 60 + minutes;
+  }
+
+  /**
+   * Create routine grid from processed data - EXACT FRONTEND LOGIC
+   * Shared method for all PDF generators - matches timeSlotUtils.js exactly
+   */
+  createRoutineGridFromProcessedData(processedRoutine, timeSlots, programCode = null, semester = null, section = null) {
+    // Step 1: Create grid structure using normalized time slot IDs (matches frontend createRoutineGrid)
     const grid = {};
     
-    // Initialize grid structure
-    this.dayNames.forEach((_, dayIndex) => {
+    for (let dayIndex = 0; dayIndex < this.dayNames.length; dayIndex++) {
       grid[dayIndex] = {};
-      timeSlots.forEach((timeSlot, slotIndex) => {
-        grid[dayIndex][slotIndex] = null;
-      });
-    });
-
-    // Populate grid with processed data
+      
+      if (Array.isArray(timeSlots)) {
+        timeSlots.forEach(slot => {
+          if (slot && slot._id !== undefined) {
+            const normalizedId = this.normalizeTimeSlotId(slot._id);
+            grid[dayIndex][normalizedId] = null;
+          }
+        });
+      }
+    }
+    
+    // Step 2: Populate grid with routine data (matches frontend populateRoutineGrid)
     Object.keys(processedRoutine).forEach(dayIndex => {
       const dayData = processedRoutine[dayIndex];
-      Object.keys(dayData).forEach(slotIndex => {
-        const classData = dayData[slotIndex];
-        if (classData) {
-          grid[parseInt(dayIndex)][parseInt(slotIndex)] = classData;
-        }
-      });
+      if (dayData && typeof dayData === 'object') {
+        Object.keys(dayData).forEach(slotIndex => {
+          const classData = dayData[slotIndex];
+          if (classData && grid[dayIndex]) {
+            // CRITICAL: Normalize slotIndex exactly like frontend does
+            const normalizedSlotId = this.normalizeTimeSlotId(slotIndex);
+            if (grid[dayIndex].hasOwnProperty(normalizedSlotId)) {
+              grid[parseInt(dayIndex)][normalizedSlotId] = classData;
+            }
+          }
+        });
+      }
     });
 
     return grid;
   }
 
   /**
-   * Fill routine data into PDF table - EXACTLY matches frontend logic
+   * Normalize time slot ID - matches frontend exactly
+   */
+  normalizeTimeSlotId(id) {
+    if (id === null || id === undefined) return '';
+    return String(id);
+  }
+
+  /**
+   * Fill routine data into PDF table - EXACTLY matches frontend logic with normalized slot IDs
    * Shared method for all PDF generators to ensure consistency
    */
   fillRoutineData(doc, routineGrid, timeSlots, dimensions, startY) {
@@ -721,10 +750,11 @@ class PDFGenerationService {
       timeSlots.forEach((timeSlot, slotIndex) => {
         const cellX = doc.options.margins.left + dayColumnWidth + (slotIndex * timeColumnWidth);
         
-        // CRITICAL FIX: Use slotIndex for data lookup (matches frontend exactly)
-        const classData = routineGrid[dayIndex][slotIndex];
+        // CRITICAL FIX: Use normalized slot ID for data lookup (matches frontend exactly)
+        const normalizedSlotId = this.normalizeTimeSlotId(timeSlot._id);
+        const classData = routineGrid[dayIndex][normalizedSlotId];
         
-        console.log(`PDF Processing cell day=${dayIndex}, slotIndex=${slotIndex}, time=${timeSlot.startTime}-${timeSlot.endTime}, hasData=${!!classData}, subject=${classData?.subjectName || 'empty'}`);
+        console.log(`PDF Processing cell day=${dayIndex}, slotIndex=${slotIndex}, normalizedSlotId=${normalizedSlotId}, time=${timeSlot.startTime}-${timeSlot.endTime}, hasData=${!!classData}, subject=${classData?.subjectName || 'empty'}`);
         
         // Handle break slots first
         if (timeSlot.isBreak) {
@@ -804,6 +834,68 @@ class RoutinePDFGenerator extends PDFGenerationService {
   }
 
   /**
+   * Get time slots with context-specific logic - MATCHES FRONTEND API EXACTLY
+   * This ensures PDF uses the same time slots as the frontend display
+   */
+  async getTimeSlotsByContext(programCode, semester, section, includeGlobal = true) {
+    try {
+      // Build filter for context-specific or global time slots - EXACT SAME LOGIC AS timeSlotController.js
+      const filters = [];
+      
+      // Always include global time slots unless explicitly excluded
+      if (includeGlobal) {
+        // Include both isGlobal: true AND null/undefined (for legacy time slots)
+        filters.push({ 
+          $or: [
+            { isGlobal: true },
+            { isGlobal: { $exists: false } }, // Legacy time slots without isGlobal field
+            { isGlobal: null }
+          ]
+        });
+      }
+      
+      // Add context-specific time slots if context is provided
+      if (programCode || semester || section) {
+        const contextFilter = { isGlobal: false };
+        
+        if (programCode) contextFilter.programCode = programCode.toUpperCase();
+        if (semester) contextFilter.semester = parseInt(semester);
+        if (section) contextFilter.section = section.toUpperCase();
+        
+        filters.push(contextFilter);
+      }
+      
+      // Build the main filter
+      const mainFilter = filters.length > 1 ? { $or: filters } : (filters[0] || {});
+      
+      // Get time slots sorted by sortOrder (matches frontend exactly)
+      const timeSlots = await this.TimeSlotDefinition.find(mainFilter).sort({ sortOrder: 1 });
+      
+      console.log(`🔍 PDF Context Time Slots Query:`, {
+        programCode, 
+        semester, 
+        section, 
+        includeGlobal,
+        filter: JSON.stringify(mainFilter, null, 2),
+        resultCount: timeSlots.length
+      });
+      
+      return timeSlots;
+      
+    } catch (error) {
+      console.error('❌ Error fetching context time slots for PDF:', error);
+      // Fallback to all global time slots
+      return await this.TimeSlotDefinition.find({ 
+        $or: [
+          { isGlobal: true },
+          { isGlobal: { $exists: false } },
+          { isGlobal: null }
+        ]
+      }).sort({ sortOrder: 1, startTime: 1 });
+    }
+  }
+
+  /**
    * Generate PDF file for class routine
    * @param {String} programCode - Program code (e.g., 'BCT')
    * @param {Number} semester - Semester number
@@ -814,20 +906,28 @@ class RoutinePDFGenerator extends PDFGenerationService {
     try {
       const doc = this.createDocument();
 
-      // Get time slots for headers - ROBUST SORTING
-      let timeSlots = await this.TimeSlotDefinition.find().sort({ sortOrder: 1, _id: 1 });
+      // Get time slots using the same logic as frontend API - CRITICAL FIX
+      let timeSlots = await this.getTimeSlotsByContext(programCode, semester, section);
       
-      if (timeSlots.length === 0 || timeSlots.some(slot => slot.sortOrder == null)) {
-        console.warn('⚠️  TimeSlots missing sortOrder, falling back to startTime sorting');
-        timeSlots = await this.TimeSlotDefinition.find().sort({ startTime: 1 });
+      if (timeSlots.length === 0) {
+        console.warn('⚠️  No time slots found for context, falling back to global only');
+        timeSlots = await this.TimeSlotDefinition.find({ 
+          $or: [
+            { isGlobal: true },
+            { isGlobal: { $exists: false } }, // Legacy time slots
+            { isGlobal: null }
+          ]
+        }).sort({ sortOrder: 1, startTime: 1 });
       }
       
-      console.log('📅 PDF Time Slots (sorted):', timeSlots.map((slot, idx) => ({ 
+      console.log('📅 PDF Time Slots (context-aware):', timeSlots.map((slot, idx) => ({ 
         idx, 
         id: slot._id, 
         time: `${slot.startTime}-${slot.endTime}`,
         sortOrder: slot.sortOrder,
-        isBreak: slot.isBreak 
+        isBreak: slot.isBreak,
+        isGlobal: slot.isGlobal,
+        context: slot.isGlobal ? 'Global' : `${slot.programCode} ${slot.semester} ${slot.section}`
       })));
       
       // Get routine slots with enhanced population - SAME AS FRONTEND API
@@ -854,8 +954,8 @@ class RoutinePDFGenerator extends PDFGenerationService {
         academicYear: new Date().getFullYear()
       });
 
-      // Create routine grid using processed data
-      const routineGrid = this.createRoutineGridFromProcessedData(processedRoutine, timeSlots);
+      // Create routine grid using processed data with frontend logic
+      const routineGrid = this.createRoutineGridFromProcessedData(processedRoutine, timeSlots, programCode, semester, section);
 
       // Calculate table dimensions
       const dimensions = this.calculateTableDimensions(timeSlots, {
@@ -882,34 +982,6 @@ class RoutinePDFGenerator extends PDFGenerationService {
       console.error('Error generating class routine PDF:', error);
       throw error;
     }
-  }
-
-  /**
-   * Create routine grid from processed data - matches frontend exactly
-   */
-  createRoutineGridFromProcessedData(processedRoutine, timeSlots) {
-    const grid = {};
-    
-    // Initialize grid structure
-    this.dayNames.forEach((_, dayIndex) => {
-      grid[dayIndex] = {};
-      timeSlots.forEach((timeSlot, slotIndex) => {
-        grid[dayIndex][slotIndex] = null;
-      });
-    });
-
-    // Populate grid with processed data
-    Object.keys(processedRoutine).forEach(dayIndex => {
-      const dayData = processedRoutine[dayIndex];
-      Object.keys(dayData).forEach(slotIndex => {
-        const classData = dayData[slotIndex];
-        if (classData) {
-          grid[parseInt(dayIndex)][parseInt(slotIndex)] = classData;
-        }
-      });
-    });
-
-    return grid;
   }
 
   /**

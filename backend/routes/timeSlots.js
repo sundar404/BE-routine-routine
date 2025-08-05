@@ -7,6 +7,7 @@ const timeSlotController = require('../controllers/timeSlotController');
 // Validation rules
 const timeSlotValidation = [
   body('_id')
+    .optional()
     .isInt({ min: 1 })
     .withMessage('Slot index (_id) must be a positive integer'),
   body('label')
@@ -19,6 +20,7 @@ const timeSlotValidation = [
     .matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/)
     .withMessage('End time must be in HH:MM format (24-hour)'),
   body('sortOrder')
+    .optional()
     .isInt({ min: 1 })
     .withMessage('Sort order must be a positive integer'),
   body('dayType')
@@ -29,19 +31,23 @@ const timeSlotValidation = [
     .optional()
     .isIn(['Morning', 'Afternoon', 'Evening'])
     .withMessage('Category must be Morning, Afternoon, or Evening'),
+  body('isBreak')
+    .optional()
+    .isBoolean()
+    .withMessage('isBreak must be a boolean'),
   body('applicableDays')
     .optional()
     .isArray()
-    .withMessage('Applicable days must be an array'),
+    .withMessage('applicableDays must be an array'),
   body('applicableDays.*')
     .isInt({ min: 0, max: 6 })
-    .withMessage('Each day index must be between 0-6 (Sunday-Saturday)')
+    .withMessage('Each applicable day must be between 0-6')
 ];
 
 // @route   GET /api/time-slots
-// @desc    Get all time slots with filtering
-// @access  Public (for development/testing)
-router.get('/', timeSlotController.getTimeSlots);
+// @desc    Get all time slots
+// @access  Private
+router.get('/', protect, timeSlotController.getTimeSlots);
 
 // @route   GET /api/time-slots/category/:category
 // @desc    Get time slots by category
@@ -52,6 +58,16 @@ router.get('/category/:category', protect, timeSlotController.getTimeSlotsByCate
 // @desc    Initialize default time slots
 // @access  Private/Admin
 router.post('/initialize', [protect, authorize('admin')], timeSlotController.initializeTimeSlots);
+
+// @route   POST /api/time-slots/reorder
+// @desc    Reorder all time slots chronologically
+// @access  Private/Admin
+router.post('/reorder', [protect, authorize('admin')], timeSlotController.reorderTimeSlots);
+
+// @route   POST /api/time-slots/context/:programCode/:semester/:section
+// @desc    Create a context-specific time slot
+// @access  Private/Admin
+router.post('/context/:programCode/:semester/:section', [protect, authorize('admin'), ...timeSlotValidation], timeSlotController.createContextTimeSlot);
 
 // @route   POST /api/time-slots
 // @desc    Create a new time slot

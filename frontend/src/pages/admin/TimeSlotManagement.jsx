@@ -78,13 +78,47 @@ const TimeSlotManagement = () => {
 
   // Delete time slot mutation
   const deleteMutation = useMutation({
-    mutationFn: (id) => timeSlotsAPI.deleteTimeSlot(id),
-    onSuccess: () => {
-      message.success('Time slot deleted successfully');
+    mutationFn: ({ id, force = false }) => timeSlotsAPI.deleteTimeSlot(id, force),
+    onSuccess: (result) => {
+      const message_text = result.data?.msg || 'Time slot deleted successfully';
+      message.success(message_text);
       queryClient.invalidateQueries(['timeSlots']);
     },
-    onError: (error) => {
-      message.error(error.response?.data?.message || 'Failed to delete time slot');
+    onError: (error, { id }) => {
+      const errorData = error.response?.data;
+      
+      // If the error indicates usage and suggests force delete
+      if (errorData?.canForceDelete && errorData?.usageCount > 0) {
+        Modal.confirm({
+          title: 'Time Slot In Use',
+          content: (
+            <div>
+              <p>{errorData.msg}</p>
+              {errorData.sampleUsage && (
+                <div style={{ marginTop: '12px' }}>
+                  <strong>Example usage:</strong>
+                  <ul>
+                    {errorData.sampleUsage.subject && <li>Subject: {errorData.sampleUsage.subject}</li>}
+                    {errorData.sampleUsage.teacher && <li>Teacher: {errorData.sampleUsage.teacher}</li>}
+                    {errorData.sampleUsage.day && <li>Day: {errorData.sampleUsage.day}</li>}
+                  </ul>
+                </div>
+              )}
+              <p style={{ marginTop: '12px', color: '#d46b08' }}>
+                <strong>Force delete will remove this time slot from all {errorData.usageCount} routine assignments.</strong>
+              </p>
+            </div>
+          ),
+          okText: `Force Delete (Remove ${errorData.usageCount} assignments)`,
+          okType: 'danger',
+          cancelText: 'Cancel',
+          onOk: () => {
+            deleteMutation.mutate({ id, force: true });
+          }
+        });
+      } else {
+        message.error(errorData?.msg || error.message || 'Failed to delete time slot');
+      }
     }
   });
 
@@ -100,7 +134,19 @@ const TimeSlotManagement = () => {
     }
   });
 
-  const timeSlots = timeSlotsData?.data?.data || [];
+  // Reorder time slots mutation
+  const reorderMutation = useMutation({
+    mutationFn: () => timeSlotsAPI.reorderTimeSlots(),
+    onSuccess: () => {
+      message.success('Time slots reordered chronologically');
+      queryClient.invalidateQueries(['timeSlots']);
+    },
+    onError: (error) => {
+      message.error(error.response?.data?.message || 'Failed to reorder time slots');
+    }
+  });
+
+  const timeSlots = timeSlotsData?.data || [];
 
   const handleAdd = () => {
     setEditingTimeSlot(null);
@@ -119,7 +165,7 @@ const TimeSlotManagement = () => {
   };
 
   const handleDelete = (id) => {
-    deleteMutation.mutate(id);
+    deleteMutation.mutate({ id });
   };
 
   const handleSave = async () => {
@@ -269,6 +315,14 @@ const TimeSlotManagement = () => {
                 loading={initializeMutation.isLoading}
               >
                 Initialize Default
+              </Button>
+              <Button
+                icon={<ClockCircleOutlined />}
+                onClick={() => reorderMutation.mutate()}
+                loading={reorderMutation.isLoading}
+                title="Reorder all time slots chronologically by start time"
+              >
+                Reorder
               </Button>
               <Button
                 type="primary"

@@ -37,6 +37,33 @@ class TeacherPDFGenerator extends PDFGenerationService {
   }
 
   /**
+   * Get all time slots (global + context-specific) for teacher view
+   * Teachers show all time slots across all programs/semesters/sections
+   */
+  async getGlobalTimeSlots() {
+    try {
+      // For teacher view, we want to see ALL time slots to get complete picture
+      // This includes both global and context-specific time slots
+      const timeSlots = await this.TimeSlotDefinition.find().sort({ sortOrder: 1, startTime: 1 });
+      
+      console.log(`👨‍🏫 Teacher PDF: Found ${timeSlots.length} total time slots (global + context-specific)`);
+      
+      return timeSlots;
+      
+    } catch (error) {
+      console.error('❌ Error fetching time slots for teacher PDF:', error);
+      // Fallback to basic global time slots
+      return await this.TimeSlotDefinition.find({ 
+        $or: [
+          { isGlobal: true },
+          { isGlobal: { $exists: false } },
+          { isGlobal: null }
+        ]
+      }).sort({ sortOrder: 1, startTime: 1 });
+    }
+  }
+
+  /**
    * Generate PDF file for teacher schedule - STANDARDIZED METHOD PATTERN
    * @param {Object} teacher - Teacher object with _id, fullName, etc.
    * @param {Object} options - Additional options (scheduleData, academicYear, etc.)
@@ -77,20 +104,17 @@ class TeacherPDFGenerator extends PDFGenerationService {
         console.log('🔄 Fetching data independently (legacy mode)');
         
         // Legacy mode: fetch data independently (same as before)
-        // Get time slots for headers - ROBUST SORTING
-        timeSlots = await this.TimeSlotDefinition.find().sort({ sortOrder: 1, _id: 1 });
+        // Get time slots using global logic (teachers can see all time slots)
+        timeSlots = await this.getGlobalTimeSlots();
         
-        if (timeSlots.length === 0 || timeSlots.some(slot => slot.sortOrder == null)) {
-          console.warn('⚠️  TimeSlots missing sortOrder, falling back to startTime sorting');
-          timeSlots = await this.TimeSlotDefinition.find().sort({ startTime: 1 });
-        }
-        
-        console.log('📅 Teacher PDF Time Slots (sorted):', timeSlots.map((slot, idx) => ({ 
+        console.log('📅 Teacher PDF Time Slots (global):', timeSlots.map((slot, idx) => ({ 
           idx, 
           id: slot._id, 
           time: `${slot.startTime}-${slot.endTime}`,
           sortOrder: slot.sortOrder,
-          isBreak: slot.isBreak 
+          isBreak: slot.isBreak,
+          isGlobal: slot.isGlobal,
+          context: slot.isGlobal ? 'Global' : `${slot.programCode} ${slot.semester} ${slot.section}`
         })));
         
         // Get routine slots with enhanced population - SAME AS CLASS ROUTINE

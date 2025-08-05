@@ -280,6 +280,20 @@ const Layout = () => {
         margin: '0 8px 5px 8px',
         width: 'calc(100% - 16px)'
       }
+    },
+    { 
+      key: '/timeslots-manager', 
+      icon: <BankOutlined style={{fontSize: '18px', color: location.pathname === '/timeslots-manager' ? '#fff' : '#6b7280'}} />, 
+      label: 'Time Slots',
+      title: collapsed ? 'Time Slots' : undefined,
+      style: {
+        fontWeight: location.pathname === '/timeslots-manager' ? 700 : 500,
+        background: location.pathname === '/timeslots-manager' ? '#667eea' : 'transparent',
+        color: location.pathname === '/timeslots-manager' ? '#fff' : 'inherit',
+        borderRadius: '6px',
+        margin: '0 8px 5px 8px',
+        width: 'calc(100% - 16px)'
+      }
     }
   ];
 

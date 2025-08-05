@@ -537,7 +537,17 @@ export const roomsAPI = {
 
 // TimeSlots API
 export const timeSlotsAPI = {
-  getTimeSlots: () => api.get('/time-slots')
+  getTimeSlots: (params = {}) => {
+    const queryParams = new URLSearchParams(params).toString();
+    return api.get(`/time-slots${queryParams ? '?' + queryParams : ''}`);
+  },
+  createTimeSlot: (data) => api.post('/time-slots', data),
+  createContextTimeSlot: (programCode, semester, section, data) => 
+    api.post(`/time-slots/context/${programCode}/${semester}/${section}`, data),
+  updateTimeSlot: (id, data) => api.put(`/time-slots/${id}`, data),
+  deleteTimeSlot: (id, force = false) => api.delete(`/time-slots/${id}${force ? '?force=true' : ''}`),
+  initializeTimeSlots: () => api.post('/time-slots/initialize'),
+  reorderTimeSlots: () => api.post('/time-slots/reorder')
 };
 
 // Users API

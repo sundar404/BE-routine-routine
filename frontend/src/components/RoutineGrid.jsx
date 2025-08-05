@@ -12,14 +12,21 @@ import {
   Modal, 
   message,
   Tooltip,
-  App
+  App,
+  Form,
+  Input,
+  TimePicker,
+  Switch,
+  Row,
+  Col
 } from 'antd';
 import { 
   PlusOutlined, 
   DeleteOutlined,
   WarningOutlined,
   CalendarOutlined,
-  ClearOutlined
+  ClearOutlined,
+  ExclamationCircleOutlined
 } from '@ant-design/icons';
 import AssignClassModal from './AssignClassModal';
 import ExcelActions from './ExcelActions';
@@ -30,6 +37,7 @@ import TeacherPDFActions from './TeacherPDFActions';
 import { routinesAPI, timeSlotsAPI } from '../services/api';
 import { handleRoutineChangeCache } from '../utils/teacherScheduleCache';
 import * as timeSlotUtils from '../utils/timeSlotUtils';
+import dayjs from 'dayjs';
 import './RoutineGrid.css';
 
 // Extract the utility functions we need
@@ -157,10 +165,14 @@ const RoutineGrid = ({
   viewType = 'routine' // 'routine', 'teacher', 'room'
 }) => {
   const [assignModalVisible, setAssignModalVisible] = useState(false);
+  const [addTimeSlotModalVisible, setAddTimeSlotModalVisible] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState({ dayIndex: null, slotIndex: null });
   const [existingClass, setExistingClass] = useState(null);
   const [lastDeletedClass, setLastDeletedClass] = useState(null);
   const [showUndoButton, setShowUndoButton] = useState(false);
+  
+  // Form for adding time slots
+  const [timeSlotForm] = Form.useForm();
 
   // Use App.useApp for proper context support in modals
   const { modal, message: contextMessage } = App.useApp();
@@ -228,12 +240,20 @@ const RoutineGrid = ({
     data: timeSlotsData, 
     isLoading: timeSlotsLoading 
   } = useQuery({
-    queryKey: ['timeSlots'],
+    queryKey: ['timeSlots', programCode, semester, section],
     queryFn: async () => {
       if (demoMode) {
         return getDemoTimeSlots();
       } else {
-        return timeSlotsAPI.getTimeSlots();
+        // Fetch both global and context-specific time slots
+        const params = {};
+        if (programCode && semester && section) {
+          params.programCode = programCode;
+          params.semester = semester;
+          params.section = section;
+          params.includeGlobal = 'true';
+        }
+        return timeSlotsAPI.getTimeSlots(params);
       }
     },
     staleTime: 5 * 60 * 1000
@@ -600,6 +620,135 @@ const RoutineGrid = ({
       });
     },
   });
+
+  // Add context-specific time slot mutation
+  const addContextTimeSlotMutation = useMutation({
+    mutationFn: (timeSlotData) => {
+      return timeSlotsAPI.createContextTimeSlot(programCode, semester, section, timeSlotData);
+    },
+    onSuccess: (result) => {
+      safeMessage.success({
+        content: (
+          <span>
+            ✅ Time slot added successfully for {programCode} Semester {semester} Section {section}!
+          </span>
+        ),
+        duration: 3
+      });
+      
+      // Refresh time slots
+      queryClient.invalidateQueries(['timeSlots', programCode, semester, section]);
+      
+      // Close modal and reset form
+      setAddTimeSlotModalVisible(false);
+      timeSlotForm.resetFields();
+    },
+    onError: (error) => {
+      console.error('Add context time slot error:', error);
+      safeMessage.error({
+        content: (
+          <div>
+            <div>❌ Failed to add time slot</div>
+            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+              {error.response?.data?.message || error.message || 'Unknown error occurred'}
+            </div>
+          </div>
+        ),
+        duration: 5
+      });
+    }
+  });
+
+  // Delete time slot mutation
+  const deleteTimeSlotMutation = useMutation({
+    mutationFn: ({ timeSlotId, force = false }) => {
+      return timeSlotsAPI.deleteTimeSlot(timeSlotId, force);
+    },
+    onSuccess: (result, { timeSlotId, force }) => {
+      const message = result.data?.msg || 'Time slot deleted successfully!';
+      safeMessage.success({
+        content: (
+          <span>
+            ✅ {message}
+          </span>
+        ),
+        duration: 3
+      });
+      
+      // Refresh time slots
+      queryClient.invalidateQueries(['timeSlots', programCode, semester, section]);
+    },
+    onError: (error, { timeSlotId }) => {
+      console.error('Delete time slot error:', error);
+      
+      const errorData = error.response?.data;
+      
+      // If the error indicates usage and suggests force delete
+      if (errorData?.canForceDelete && errorData?.usageCount > 0) {
+        modal.confirm({
+          title: (
+            <Space>
+              <ExclamationCircleOutlined style={{ color: '#faad14' }} />
+              <span>Time Slot In Use</span>
+            </Space>
+          ),
+          content: (
+            <div>
+              <Alert
+                message={`Time slot is currently being used in ${errorData.usageCount} routine slots`}
+                description={errorData.msg}
+                type="warning"
+                showIcon
+                style={{ marginBottom: '16px' }}
+              />
+              
+              {errorData.sampleUsage && (
+                <div style={{ marginBottom: '16px' }}>
+                  <p><strong>Example usage:</strong></p>
+                  <ul style={{ paddingLeft: '20px', marginBottom: '16px' }}>
+                    {errorData.sampleUsage.subject && <li>Subject: {errorData.sampleUsage.subject}</li>}
+                    {errorData.sampleUsage.teacher && <li>Teacher: {errorData.sampleUsage.teacher}</li>}
+                    {errorData.sampleUsage.day && <li>Day: {errorData.sampleUsage.day}</li>}
+                  </ul>
+                </div>
+              )}
+              
+              <div style={{ backgroundColor: '#fff7e6', padding: '12px', borderRadius: '6px', border: '1px solid #ffd591' }}>
+                <p style={{ margin: 0, fontWeight: 'bold', color: '#d46b08' }}>
+                  Force Delete Options:
+                </p>
+                <p style={{ margin: '8px 0 0 0', fontSize: '14px' }}>
+                  • <strong>Cancel:</strong> Keep the time slot and manually remove it from routine assignments first<br/>
+                  • <strong>Force Delete:</strong> Delete the time slot and automatically remove all {errorData.usageCount} assignments
+                </p>
+              </div>
+            </div>
+          ),
+          okText: `Force Delete (Remove ${errorData.usageCount} assignments)`,
+          okType: 'danger',
+          cancelText: 'Cancel',
+          width: 600,
+          onOk: () => {
+            // Call delete with force=true
+            deleteTimeSlotMutation.mutate({ timeSlotId, force: true });
+          }
+        });
+      } else {
+        // Regular error handling
+        safeMessage.error({
+          content: (
+            <div>
+              <div>❌ Failed to delete time slot</div>
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                {errorData?.msg || error.message || 'Unknown error occurred'}
+              </div>
+            </div>
+          ),
+          duration: 5
+        });
+      }
+    }
+  });
   
   // Clear span group mutation
   const clearSpanGroupMutation = useMutation({
@@ -917,6 +1066,59 @@ const RoutineGrid = ({
       console.error('Undo error:', error);
       safeMessage.error('Failed to restore class. Please recreate it manually.');
     }
+  };
+
+  // Handle delete time slot with confirmation
+  const handleDeleteTimeSlot = (timeSlot) => {
+    // Check if this is a global time slot or context-specific
+    const isGlobal = timeSlot.isGlobal;
+    const isContextSpecific = !isGlobal && timeSlot.programCode && timeSlot.semester && timeSlot.section;
+    
+    modal.confirm({
+      title: (
+        <Space>
+          <DeleteOutlined style={{ color: '#ff4d4f' }} />
+          <span>Delete Time Slot</span>
+        </Space>
+      ),
+      content: (
+        <div>
+          <Alert
+            message={isGlobal ? "Global Time Slot" : "Context-Specific Time Slot"}
+            description={
+              isGlobal 
+                ? `This will delete the global time slot "${timeSlot.label}" from all programs, semesters, and sections.`
+                : `This will delete the time slot "${timeSlot.label}" only for ${timeSlot.programCode} Semester ${timeSlot.semester} Section ${timeSlot.section}.`
+            }
+            type="warning"
+            showIcon
+            style={{ marginBottom: '16px' }}
+          />
+          
+          <div style={{ fontSize: '14px' }}>
+            <p><strong>Time Slot Details:</strong></p>
+            <ul style={{ paddingLeft: '20px' }}>
+              <li>Label: {timeSlot.label}</li>
+              <li>Time: {timeSlot.startTime} - {timeSlot.endTime}</li>
+              <li>Type: {isGlobal ? 'Global' : 'Context-Specific'}</li>
+              {isContextSpecific && (
+                <li>Context: {timeSlot.programCode} Semester {timeSlot.semester} Section {timeSlot.section}</li>
+              )}
+            </ul>
+            <p style={{ marginTop: '16px', color: '#ff4d4f' }}>
+              <strong>Warning:</strong> This action cannot be undone. Any classes scheduled in this time slot will also be removed.
+            </p>
+          </div>
+        </div>
+      ),
+      okText: 'Yes, Delete Time Slot',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      width: 600,
+      onOk: () => {
+        deleteTimeSlotMutation.mutate({ timeSlotId: timeSlot._id });
+      }
+    });
   };
 
   const onModalClose = () => {
@@ -1371,18 +1573,31 @@ const RoutineGrid = ({
         extra={
           <Space className="routine-actions">
             {!demoMode && !teacherViewMode && !isRoomViewMode && isEditable && (
-              <Tooltip title="Clear Entire Routine">
-                <Button 
-                  type="default"
-                  danger
-                  icon={<DeleteOutlined />}
-                  size="small"
-                  onClick={handleClearEntireRoutine}
-                  style={{ marginRight: '8px' }}
-                >
-                  Clear All
-                </Button>
-              </Tooltip>
+              <>
+                <Tooltip title={`Add Time Slot for ${programCode} Semester ${semester} Section ${section}`}>
+                  <Button 
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    size="small"
+                    onClick={() => setAddTimeSlotModalVisible(true)}
+                    style={{ marginRight: '8px' }}
+                  >
+                    Add Time Slot
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Clear Entire Routine">
+                  <Button 
+                    type="default"
+                    danger
+                    icon={<DeleteOutlined />}
+                    size="small"
+                    onClick={handleClearEntireRoutine}
+                    style={{ marginRight: '8px' }}
+                  >
+                    Clear All
+                  </Button>
+                </Tooltip>
+              </>
             )}
             {!demoMode && !teacherViewMode && showExcelActions && (
               <ExcelActions
@@ -1520,11 +1735,66 @@ const RoutineGrid = ({
                       display: 'flex', 
                       flexDirection: 'column', 
                       alignItems: 'center', 
-                      gap: '2px' 
+                      gap: '2px',
+                      position: 'relative'
                     }}>
                       <div style={{ fontWeight: '600', fontSize: '12px', color: '#333' }}>
                         {timeSlot.isBreak ? 'BREAK' : `${timeSlot.startTime} - ${timeSlot.endTime}`}
                       </div>
+                      
+                      {/* Delete button for editable mode and non-global time slots or admin users */}
+                      {isEditable && !demoMode && !teacherViewMode && !isRoomViewMode && (
+                        <div style={{ 
+                          display: 'flex', 
+                          gap: '4px', 
+                          alignItems: 'center',
+                          marginTop: '4px'
+                        }}>
+                          {/* Show context label for context-specific time slots */}
+                          {!timeSlot.isGlobal && (
+                            <Tag 
+                              size="small" 
+                              color="blue"
+                              style={{ 
+                                fontSize: '10px', 
+                                margin: 0,
+                                padding: '0 4px',
+                                lineHeight: '16px'
+                              }}
+                            >
+                              {timeSlot.programCode}
+                            </Tag>
+                          )}
+                          
+                          <Tooltip 
+                            title={
+                              timeSlot.isGlobal 
+                                ? "Delete Global Time Slot (affects all programs)"
+                                : `Delete Time Slot for ${timeSlot.programCode || programCode} ${timeSlot.semester || semester} ${timeSlot.section || section}`
+                            }
+                          >
+                            <Button
+                              type="text"
+                              danger
+                              size="small"
+                              icon={<DeleteOutlined />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteTimeSlot(timeSlot);
+                              }}
+                              style={{
+                                height: '20px',
+                                width: '20px',
+                                padding: 0,
+                                fontSize: '10px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                            />
+                          </Tooltip>
+                        </div>
+                      )}
                     </div>
                   </th>
                 ))}
@@ -1746,6 +2016,100 @@ const RoutineGrid = ({
           existingClass={existingClass}
           loading={clearClassMutation.isLoading}
         />
+      )}
+      
+      {/* Add Context-Specific Time Slot Modal */}
+      {addTimeSlotModalVisible && (
+        <Modal
+          title={`Add Time Slot for ${programCode} Semester ${semester} Section ${section}`}
+          open={addTimeSlotModalVisible}
+          onOk={async () => {
+            try {
+              const values = await timeSlotForm.validateFields();
+              const timeSlotData = {
+                ...values,
+                startTime: values.startTime.format('HH:mm'),
+                endTime: values.endTime.format('HH:mm')
+              };
+              addContextTimeSlotMutation.mutate(timeSlotData);
+            } catch (error) {
+              console.error('Validation failed:', error);
+            }
+          }}
+          onCancel={() => {
+            setAddTimeSlotModalVisible(false);
+            timeSlotForm.resetFields();
+          }}
+          confirmLoading={addContextTimeSlotMutation.isLoading}
+          width={500}
+        >
+          <Alert
+            message="Context-Specific Time Slot"
+            description={`This time slot will only be available for ${programCode} Semester ${semester} Section ${section} and will not appear in other programs/semesters/sections.`}
+            type="info"
+            showIcon
+            style={{ marginBottom: '16px' }}
+          />
+          
+          <Form
+            form={timeSlotForm}
+            layout="vertical"
+            initialValues={{
+              isBreak: false
+            }}
+          >
+            <Form.Item
+              name="label"
+              label="Label"
+              rules={[
+                { required: true, message: 'Please enter a label' },
+                { max: 50, message: 'Label must be 50 characters or less' }
+              ]}
+            >
+              <Input placeholder="e.g., Extra Period, Lab Session" />
+            </Form.Item>
+
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="startTime"
+                  label="Start Time"
+                  rules={[{ required: true, message: 'Please select start time' }]}
+                >
+                  <TimePicker
+                    format="HH:mm"
+                    style={{ width: '100%' }}
+                    placeholder="Select start time"
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="endTime"
+                  label="End Time"
+                  rules={[{ required: true, message: 'Please select end time' }]}
+                >
+                  <TimePicker
+                    format="HH:mm"
+                    style={{ width: '100%' }}
+                    placeholder="Select end time"
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Form.Item
+              name="isBreak"
+              label="Time Slot Type"
+              valuePropName="checked"
+            >
+              <Switch
+                checkedChildren="Break"
+                unCheckedChildren="Class"
+              />
+            </Form.Item>
+          </Form>
+        </Modal>
       )}
     </Space>
   );

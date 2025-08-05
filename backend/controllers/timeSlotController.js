@@ -11,6 +11,76 @@ exports.createTimeSlot = async (req, res) => {
   }
 
   try {
+    // Determine if this is a context-specific time slot
+    const { programCode, semester, section } = req.body;
+    const isContextSpecific = programCode || semester || section;
+    
+    // Set isGlobal flag
+    req.body.isGlobal = !isContextSpecific;
+    
+    // Auto-generate _id if not provided
+    if (!req.body._id) {
+      // Find the highest existing _id and increment (for both global and context-specific)
+      const lastTimeSlot = await TimeSlot.findOne().sort({ _id: -1 });
+      req.body._id = lastTimeSlot ? lastTimeSlot._id + 1 : 1;
+    }
+    
+    // Calculate chronological sortOrder based on start time
+    if (!req.body.sortOrder) {
+      const newStartTime = req.body.startTime;
+      
+      // Convert time string to minutes for comparison
+      const timeToMinutes = (timeStr) => {
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return hours * 60 + minutes;
+      };
+      
+      const newStartMinutes = timeToMinutes(newStartTime);
+      
+      // Get existing time slots for the same context (global or specific program/semester/section)
+      const contextFilter = isContextSpecific 
+        ? { 
+            isGlobal: false,
+            ...(programCode && { programCode }),
+            ...(semester && { semester: parseInt(semester) }),
+            ...(section && { section: section.toUpperCase() })
+          }
+        : { isGlobal: true };
+      
+      const existingSlots = await TimeSlot.find(contextFilter).sort({ sortOrder: 1 });
+      
+      let insertPosition = 1;
+      let foundPosition = false;
+      
+      for (let i = 0; i < existingSlots.length; i++) {
+        const existingStartMinutes = timeToMinutes(existingSlots[i].startTime);
+        
+        if (newStartMinutes < existingStartMinutes) {
+          // New slot should be inserted before this existing slot
+          insertPosition = existingSlots[i].sortOrder;
+          foundPosition = true;
+          break;
+        }
+      }
+      
+      if (!foundPosition) {
+        // New slot should be added at the end
+        const lastSlot = existingSlots[existingSlots.length - 1];
+        insertPosition = lastSlot ? lastSlot.sortOrder + 1 : 1;
+      } else {
+        // Shift all subsequent slots in the same context by 1 to make room
+        await TimeSlot.updateMany(
+          { 
+            ...contextFilter,
+            sortOrder: { $gte: insertPosition } 
+          },
+          { $inc: { sortOrder: 1 } }
+        );
+      }
+      
+      req.body.sortOrder = insertPosition;
+    }
+    
     const timeSlot = new TimeSlot(req.body);
     await timeSlot.save();
     
@@ -26,18 +96,98 @@ exports.createTimeSlot = async (req, res) => {
   }
 };
 
+// @desc    Create a context-specific time slot for program/semester/section
+// @route   POST /api/time-slots/context/:programCode/:semester/:section
+// @access  Private/Admin
+exports.createContextTimeSlot = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  try {
+    const { programCode, semester, section } = req.params;
+    
+    // Add context to request body
+    req.body.programCode = programCode;
+    req.body.semester = parseInt(semester);
+    req.body.section = section.toUpperCase();
+    req.body.isGlobal = false;
+    
+    // Auto-generate _id if not provided
+    if (!req.body._id) {
+      const lastTimeSlot = await TimeSlot.findOne().sort({ _id: -1 });
+      req.body._id = lastTimeSlot ? lastTimeSlot._id + 1 : 1;
+    }
+    
+    // Calculate sortOrder for this specific context
+    if (!req.body.sortOrder) {
+      const contextFilter = {
+        isGlobal: false,
+        programCode,
+        semester: parseInt(semester),
+        section: section.toUpperCase()
+      };
+      
+      const existingSlots = await TimeSlot.find(contextFilter).sort({ sortOrder: 1 });
+      req.body.sortOrder = existingSlots.length + 1;
+    }
+    
+    const timeSlot = new TimeSlot(req.body);
+    await timeSlot.save();
+    
+    res.status(201).json({
+      success: true,
+      message: `Time slot created for ${programCode} Semester ${semester} Section ${section}`,
+      timeSlot
+    });
+  } catch (err) {
+    console.error('Context time slot creation error:', err.message);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+};
+
 // @desc    Get all time slots
 // @route   GET /api/time-slots
 // @access  Private
 exports.getTimeSlots = async (req, res) => {
   try {
-    const { dayType, category } = req.query;
-    const filter = {};
+    const { dayType, category, programCode, semester, section, includeGlobal = 'true' } = req.query;
     
-    if (dayType) filter.dayType = dayType;
-    if (category) filter.category = category;
+    // Build filter for context-specific or global time slots
+    const filters = [];
+    
+    // Always include global time slots unless explicitly excluded
+    if (includeGlobal === 'true') {
+      // Include both isGlobal: true AND null/undefined (for legacy time slots)
+      filters.push({ 
+        $or: [
+          { isGlobal: true },
+          { isGlobal: { $exists: false } }, // Legacy time slots without isGlobal field
+          { isGlobal: null }
+        ]
+      });
+    }
+    
+    // Add context-specific time slots if context is provided
+    if (programCode || semester || section) {
+      const contextFilter = { isGlobal: false };
+      
+      if (programCode) contextFilter.programCode = programCode;
+      if (semester) contextFilter.semester = parseInt(semester);
+      if (section) contextFilter.section = section.toUpperCase();
+      
+      filters.push(contextFilter);
+    }
+    
+    // Build the main filter
+    const mainFilter = filters.length > 1 ? { $or: filters } : (filters[0] || {});
+    
+    // Add additional filters
+    if (dayType) mainFilter.dayType = dayType;
+    if (category) mainFilter.category = category;
 
-    const timeSlots = await TimeSlot.find(filter).sort({ sortOrder: 1 });
+    const timeSlots = await TimeSlot.find(mainFilter).sort({ sortOrder: 1 });
     res.json(timeSlots);
   } catch (err) {
     console.error(err.message);
@@ -286,16 +436,80 @@ exports.deleteTimeSlot = async (req, res) => {
       isActive: true
     });
 
-    if (usageCount > 0) {
+    // Check for force delete parameter
+    const forceDelete = req.query.force === 'true';
+
+    if (usageCount > 0 && !forceDelete) {
+      // Get sample usage info for better error message
+      const sampleUsage = await RoutineSlot.findOne({
+        slotIndex: req.params.id,
+        isActive: true
+      }).populate('subject teacher');
+
       return res.status(400).json({ 
-        msg: `Cannot delete time slot. It is being used in ${usageCount} active routine slots.` 
+        msg: `Cannot delete time slot. It is being used in ${usageCount} active routine slots.`,
+        usageCount,
+        canForceDelete: true,
+        sampleUsage: sampleUsage ? {
+          subject: sampleUsage.subject?.name,
+          teacher: sampleUsage.teacher?.name,
+          day: sampleUsage.day
+        } : null,
+        suggestion: 'You can force delete this time slot, which will remove it from all routine slots, or first remove the time slot from routine assignments.'
+      });
+    }
+
+    if (forceDelete && usageCount > 0) {
+      // Remove the time slot from all routine slots first
+      await RoutineSlot.deleteMany({
+        slotIndex: req.params.id
       });
     }
 
     await TimeSlot.findByIdAndDelete(req.params.id);
-    res.json({ msg: 'Time slot deleted successfully' });
+    
+    const responseMsg = forceDelete && usageCount > 0 
+      ? `Time slot deleted successfully. Removed from ${usageCount} routine slots.`
+      : 'Time slot deleted successfully';
+      
+    res.json({ 
+      msg: responseMsg,
+      removedFromSlots: forceDelete ? usageCount : 0
+    });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+};
+
+// @desc    Reorder all time slots chronologically
+// @route   POST /api/time-slots/reorder
+// @access  Private/Admin
+exports.reorderTimeSlots = async (req, res) => {
+  try {
+    // Get all time slots and sort by start time
+    const timeSlots = await TimeSlot.find().sort({ startTime: 1 });
+    
+    // Update sortOrder to match chronological order
+    for (let i = 0; i < timeSlots.length; i++) {
+      await TimeSlot.findByIdAndUpdate(
+        timeSlots[i]._id,
+        { sortOrder: i + 1 },
+        { new: true }
+      );
+    }
+    
+    res.json({
+      success: true,
+      message: `Successfully reordered ${timeSlots.length} time slots chronologically`,
+      count: timeSlots.length
+    });
+  } catch (err) {
+    console.error('Reorder time slots error:', err.message);
+    res.status(500).json({ 
+      success: false,
+      msg: 'Server error during reordering', 
+      error: err.message 
+    });
   }
 };

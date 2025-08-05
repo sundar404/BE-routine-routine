@@ -37,6 +37,33 @@ class RoomPDFGenerator extends PDFGenerationService {
   }
 
   /**
+   * Get all time slots (global + context-specific) for room view
+   * Rooms show all time slots across all programs/semesters/sections
+   */
+  async getGlobalTimeSlots() {
+    try {
+      // For room view, we want to see ALL time slots to get complete picture
+      // This includes both global and context-specific time slots
+      const timeSlots = await this.TimeSlotDefinition.find().sort({ sortOrder: 1, startTime: 1 });
+      
+      console.log(`🏢 Room PDF: Found ${timeSlots.length} total time slots (global + context-specific)`);
+      
+      return timeSlots;
+      
+    } catch (error) {
+      console.error('❌ Error fetching time slots for room PDF:', error);
+      // Fallback to basic global time slots
+      return await this.TimeSlotDefinition.find({ 
+        $or: [
+          { isGlobal: true },
+          { isGlobal: { $exists: false } },
+          { isGlobal: null }
+        ]
+      }).sort({ sortOrder: 1, startTime: 1 });
+    }
+  }
+
+  /**
    * Generate PDF file for room schedule - STANDARDIZED METHOD PATTERN
    * @param {Object} room - Room object with _id, name, building
    * @param {Object} options - Additional options (scheduleData, academicYear, etc.)
@@ -73,21 +100,18 @@ class RoomPDFGenerator extends PDFGenerationService {
       } else {
         console.log('🔄 Fetching data independently (legacy mode)');
         
-        // Legacy mode: fetch data independently (same as before)
-        // Get time slots for headers - ROBUST SORTING
-        timeSlots = await this.TimeSlotDefinition.find().sort({ sortOrder: 1, _id: 1 });
+        // Legacy mode: fetch data independently - UPDATED TO USE CONTEXT-AWARE TIME SLOTS
+        // Get time slots using global logic (rooms can see all time slots)
+        timeSlots = await this.getGlobalTimeSlots();
         
-        if (timeSlots.length === 0 || timeSlots.some(slot => slot.sortOrder == null)) {
-          console.warn('⚠️  TimeSlots missing sortOrder, falling back to startTime sorting');
-          timeSlots = await this.TimeSlotDefinition.find().sort({ startTime: 1 });
-        }
-        
-        console.log('📅 Room PDF Time Slots (sorted):', timeSlots.map((slot, idx) => ({ 
+        console.log('📅 Room PDF Time Slots (global):', timeSlots.map((slot, idx) => ({ 
           idx, 
           id: slot._id, 
           time: `${slot.startTime}-${slot.endTime}`,
           sortOrder: slot.sortOrder,
-          isBreak: slot.isBreak 
+          isBreak: slot.isBreak,
+          isGlobal: slot.isGlobal,
+          context: slot.isGlobal ? 'Global' : `${slot.programCode} ${slot.semester} ${slot.section}`
         })));
         
         // Get routine slots with enhanced population - SAME AS CLASS ROUTINE
@@ -119,10 +143,8 @@ class RoomPDFGenerator extends PDFGenerationService {
         academicYear: options.academicYear || new Date().getFullYear()
       });
 
-      // Create routine grid using processed data
-      const routineGrid = this.createRoutineGridFromProcessedData(processedRoutine, timeSlots);
-
-      // Calculate table dimensions
+      // Create routine grid using processed data  
+      const routineGrid = this.createRoutineGridFromProcessedData(processedRoutine, timeSlots);      // Calculate table dimensions
       const dimensions = this.calculateTableDimensions(timeSlots, {
         width: doc.page.width,
         height: doc.page.height,
@@ -228,13 +250,8 @@ class RoomPDFGenerator extends PDFGenerationService {
       const doc = this.createDocument();
       let isFirstPage = true;
 
-      // Get time slots once for all rooms
-      let timeSlots = await this.TimeSlotDefinition.find().sort({ sortOrder: 1, _id: 1 });
-      
-      if (timeSlots.length === 0 || timeSlots.some(slot => slot.sortOrder == null)) {
-        console.warn('⚠️  TimeSlots missing sortOrder, falling back to startTime sorting');
-        timeSlots = await this.TimeSlotDefinition.find().sort({ startTime: 1 });
-      }
+      // Get time slots once for all rooms - UPDATED TO USE GLOBAL LOGIC
+      const timeSlots = await this.getGlobalTimeSlots();
 
       for (const room of rooms) {
         try {
