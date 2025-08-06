@@ -630,7 +630,7 @@ const RoutineGrid = ({
       safeMessage.success({
         content: (
           <span>
-            ✅ Time slot added successfully for {programCode} Semester {semester} Section {section}!
+            ✅ Time slot added and automatically reordered for {programCode} Semester {semester} Section {section}!
           </span>
         ),
         duration: 3

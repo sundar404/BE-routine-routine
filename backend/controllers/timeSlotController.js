@@ -84,6 +84,15 @@ exports.createTimeSlot = async (req, res) => {
     const timeSlot = new TimeSlot(req.body);
     await timeSlot.save();
     
+    // Automatically reorder all time slots after creating a new one
+    try {
+      await reorderTimeSlotsInternal();
+      console.log('✅ Time slots automatically reordered after creation');
+    } catch (reorderError) {
+      console.warn('⚠️ Failed to auto-reorder time slots:', reorderError.message);
+      // Don't fail the creation if reordering fails
+    }
+    
     res.status(201).json(timeSlot);
   } catch (err) {
     console.error(err.message);
@@ -135,6 +144,15 @@ exports.createContextTimeSlot = async (req, res) => {
     
     const timeSlot = new TimeSlot(req.body);
     await timeSlot.save();
+    
+    // Automatically reorder all time slots after creating a new context-specific one
+    try {
+      await reorderTimeSlotsInternal();
+      console.log('✅ Time slots automatically reordered after context time slot creation');
+    } catch (reorderError) {
+      console.warn('⚠️ Failed to auto-reorder time slots:', reorderError.message);
+      // Don't fail the creation if reordering fails
+    }
     
     res.status(201).json({
       success: true,
@@ -233,6 +251,15 @@ exports.initializeTimeSlots = async (req, res) => {
     // Insert all the default time slots
     const insertedSlots = await TimeSlot.insertMany(defaultTimeSlots, { ordered: false });
     
+    // Automatically reorder all time slots after initialization
+    try {
+      await reorderTimeSlotsInternal();
+      console.log('✅ Time slots automatically reordered after initialization');
+    } catch (reorderError) {
+      console.warn('⚠️ Failed to auto-reorder time slots:', reorderError.message);
+      // Don't fail the initialization if reordering fails
+    }
+    
     res.status(201).json({
       message: 'Default time slots initialized successfully',
       count: insertedSlots.length,
@@ -292,6 +319,15 @@ exports.updateTimeSlot = async (req, res) => {
       { $set: req.body },
       { new: true, runValidators: true }
     );
+
+    // Automatically reorder all time slots after updating (in case start time changed)
+    try {
+      await reorderTimeSlotsInternal();
+      console.log('✅ Time slots automatically reordered after update');
+    } catch (reorderError) {
+      console.warn('⚠️ Failed to auto-reorder time slots:', reorderError.message);
+      // Don't fail the update if reordering fails
+    }
 
     res.json(timeSlot);
   } catch (err) {
@@ -487,22 +523,12 @@ exports.deleteTimeSlot = async (req, res) => {
 // @access  Private/Admin
 exports.reorderTimeSlots = async (req, res) => {
   try {
-    // Get all time slots and sort by start time
-    const timeSlots = await TimeSlot.find().sort({ startTime: 1 });
-    
-    // Update sortOrder to match chronological order
-    for (let i = 0; i < timeSlots.length; i++) {
-      await TimeSlot.findByIdAndUpdate(
-        timeSlots[i]._id,
-        { sortOrder: i + 1 },
-        { new: true }
-      );
-    }
+    const result = await reorderTimeSlotsInternal();
     
     res.json({
       success: true,
-      message: `Successfully reordered ${timeSlots.length} time slots chronologically`,
-      count: timeSlots.length
+      message: `Successfully reordered ${result.count} time slots chronologically`,
+      count: result.count
     });
   } catch (err) {
     console.error('Reorder time slots error:', err.message);
@@ -512,4 +538,29 @@ exports.reorderTimeSlots = async (req, res) => {
       error: err.message 
     });
   }
+};
+
+// Internal function to reorder time slots (used both by API endpoint and auto-reorder)
+const reorderTimeSlotsInternal = async () => {
+  // Get all time slots and sort by start time
+  const timeSlots = await TimeSlot.find().sort({ startTime: 1 });
+  
+  // Update sortOrder to match chronological order
+  for (let i = 0; i < timeSlots.length; i++) {
+    await TimeSlot.findByIdAndUpdate(
+      timeSlots[i]._id,
+      { sortOrder: i + 1 },
+      { new: true }
+    );
+  }
+  
+  return {
+    count: timeSlots.length,
+    reorderedSlots: timeSlots.map(slot => ({
+      id: slot._id,
+      label: slot.label,
+      startTime: slot.startTime,
+      sortOrder: slot.sortOrder
+    }))
+  };
 };

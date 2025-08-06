@@ -51,7 +51,7 @@ const TimeSlotManagement = () => {
   const createMutation = useMutation({
     mutationFn: (timeSlotData) => timeSlotsAPI.createTimeSlot(timeSlotData),
     onSuccess: () => {
-      message.success('Time slot created successfully');
+      message.success('Time slot created and automatically reordered chronologically');
       queryClient.invalidateQueries(['timeSlots']);
       setModalVisible(false);
       form.resetFields();
@@ -65,7 +65,7 @@ const TimeSlotManagement = () => {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => timeSlotsAPI.updateTimeSlot(id, data),
     onSuccess: () => {
-      message.success('Time slot updated successfully');
+      message.success('Time slot updated and automatically reordered chronologically');
       queryClient.invalidateQueries(['timeSlots']);
       setModalVisible(false);
       setEditingTimeSlot(null);
@@ -126,7 +126,7 @@ const TimeSlotManagement = () => {
   const initializeMutation = useMutation({
     mutationFn: () => timeSlotsAPI.initializeTimeSlots(),
     onSuccess: () => {
-      message.success('Default time slots initialized successfully');
+      message.success('Default time slots initialized and automatically reordered chronologically');
       queryClient.invalidateQueries(['timeSlots']);
     },
     onError: (error) => {
@@ -320,7 +320,7 @@ const TimeSlotManagement = () => {
                 icon={<ClockCircleOutlined />}
                 onClick={() => reorderMutation.mutate()}
                 loading={reorderMutation.isLoading}
-                title="Reorder all time slots chronologically by start time"
+                title="Manually reorder all time slots chronologically (usually done automatically)"
               >
                 Reorder
               </Button>
@@ -339,7 +339,7 @@ const TimeSlotManagement = () => {
       {/* Information Alert */}
       <Alert
         message="Time Slot Configuration"
-        description="Time slots define the daily schedule structure. Each slot can be either a class period or a break. The order in the table determines the sequence during the day."
+        description="Time slots define the daily schedule structure. Each slot can be either a class period or a break. Time slots are automatically reordered chronologically when added or updated to maintain proper sequence."
         type="info"
         showIcon
       />
